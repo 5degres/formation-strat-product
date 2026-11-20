@@ -12,28 +12,28 @@ export const QUARTIERS: Quartier[] = [
   {
     id: "reveurs", nom: "Le Quartier des Rêveurs", verbe: "Comprendre", couleur: "var(--c-fawn-600)",
     lieux: ["tour_vision", "cafe_utilisateurs", "atelier_valeur", "observatoire"],
-    accueil: "Premier quartier : le Quartier des Rêveurs. Ici, on comprend avant de construire : votre cap, vos utilisateurs, votre promesse et vos concurrents. L'ordre est libre !",
+    accueil: "Vous entrez dans le Quartier des Rêveurs ! Ici, on prend le temps de comprendre avant de foncer : votre cap, vos utilisateurs, votre promesse et vos concurrents. Visitez les lieux dans l'ordre qui vous plaît.",
     cloture: "Le Quartier des Rêveurs est bouclé : vous savez pour qui vous travaillez et pourquoi on vous choisira. Direction la Zone des Bricoleurs pour passer à l'action.",
     panneau: { x: 16.6, y: 9.25 },
   },
   {
     id: "bricoleurs", nom: "La Zone des Bricoleurs", verbe: "Tester", couleur: "var(--c-green)",
     lieux: ["garage_mvp", "salle_des_choix", "salle_des_cartes"],
-    accueil: "Bienvenue dans la Zone des Bricoleurs : on construit petit, on renonce à beaucoup et on planifie la suite. Gardez en tête la cible et la promesse du Quartier des Rêveurs.",
+    accueil: "Ah, la Zone des Bricoleurs ! Ici, on retrousse ses manches : on construit petit, on fait des choix et on planifie la suite. Gardez bien en tête la cible et la promesse trouvées chez les Rêveurs.",
     cloture: "La Zone des Bricoleurs est validée : MVP, priorités et roadmap racontent la même histoire. Montez au Belvédère des Compteurs pour prouver que ça marche.",
     panneau: { x: 10.8, y: 19.3 },
   },
   {
     id: "compteurs", nom: "Le Belvédère des Compteurs", verbe: "Mesurer", couleur: "var(--c-teal)",
     lieux: ["tableau_de_bord", "marche"],
-    accueil: "Le Belvédère des Compteurs : ici, les impressions ne comptent pas, seuls les chiffres parlent. Comment saurez-vous que votre produit crée vraiment de la valeur ?",
+    accueil: "Vous voilà au Belvédère des Compteurs ! Ici, fini l'intuition, ce sont les chiffres qui parlent. Votre défi : prouver que votre produit crée vraiment de la valeur.",
     cloture: "Vos compteurs sont réglés : vous saurez si le marché vous veut. Dernier quartier, le Port des Ambitieux, pour gagner de l'argent et trouver vos premiers clients.",
     panneau: { x: 41.2, y: 10.9 },
   },
   {
     id: "ambitieux", nom: "Le Port des Ambitieux", verbe: "Vendre", couleur: "var(--px-gold-dark)",
     lieux: ["banque", "place_lancement"],
-    accueil: "Le Port des Ambitieux : il est temps de larguer les amarres. Qui paie, combien, et comment trouver vos 100 premiers clients ?",
+    accueil: "Le Port des Ambitieux, enfin ! Il est temps de larguer les amarres : on va parler argent et premiers clients.",
     cloture: "Le Port des Ambitieux est prêt : votre start-up peut vivre et se lancer. La Salle des investisseurs vous attend pour le pitch final !",
     panneau: { x: 25.0, y: 19.3 },
   },
@@ -54,6 +54,36 @@ export const ACCROCHES: Record<string, string> = {
   marche: "Au Marché, on pose LA question des investisseurs : le marché veut-il vraiment de vous ?",
   banque: "À la Banque, on vérifie que votre start-up peut vivre : qui paie, combien, et pour quels coûts ?",
   place_lancement: "Sur la Place du lancement, on prépare le décollage : comment trouver vos 100 premiers clients, concrètement ?",
+};
+
+/* Présentations de Max à l'entrée de chaque lieu : accueil chaleureux + le concept expliqué simplement. */
+export const INTROS: Record<string, string> = {
+  tour_vision: "Bienvenue en haut de la Tour de la Vision ! D'ici, on voit loin. La vision produit, c'est le changement que vous voulez apporter dans quelques années. Pas ce que fait votre appli, mais ce qui sera différent dans la vie de vos utilisateurs grâce à elle.",
+  cafe_utilisateurs: "Installez-vous, le café est pour moi ! Ici, on parle de ceux qui comptent le plus : vos utilisateurs. Avant de construire quoi que ce soit, il faut savoir pour qui on travaille et quel vrai problème cette personne vit au quotidien. C'est ce portrait qu'on appelle le persona.",
+  atelier_valeur: "Bienvenue à l'Atelier, attention aux copeaux ! Ici, on fabrique votre proposition de valeur : la raison toute simple pour laquelle quelqu'un vous choisira, vous, plutôt que de continuer à faire comme avant.",
+  observatoire: "Bienvenue à l'Observatoire ! Ici, on garde un œil sur nos rivaux les plus tenaces. Et un concurrent, ce n'est pas seulement une autre start-up : c'est aussi le bon vieux tableur, le collègue débrouillard ou l'habitude de ne rien changer. Le but : savoir ce qui vous rend vraiment différent.",
+  garage_mvp: "Bienvenue au Garage ! Ça sent l'huile de moteur et les idées pas finies, et c'est voulu. Ici, on construit le MVP : la plus petite version de votre produit qui permet de vérifier que votre idée tient la route, avant d'y passer des mois.",
+  salle_des_choix: "Entrez dans la Salle des choix ! Vous avez sûrement plein d'idées de fonctionnalités, et c'est très bien. Mais on ne peut pas tout faire en même temps : prioriser, c'est choisir ce qui compte maintenant et assumer de mettre le reste de côté.",
+  salle_des_cartes: "Bienvenue dans la Salle des cartes ! Ici, on trace la route. La roadmap, c'est le plan de votre produit dans le temps : ce que vous livrez d'abord, ensuite et plus tard, et surtout ce que chaque étape doit permettre d'obtenir.",
+  tableau_de_bord: "Bienvenue au Tableau de bord ! Ici, les impressions ne suffisent plus. Un KPI, c'est un chiffre qui vous dit si votre produit marche vraiment. Un OKR, c'est un objectif accompagné de résultats chiffrés pour savoir si vous l'avez atteint.",
+  marche: "Bienvenue au Marché, ça grouille de monde ! C'est ici qu'on cherche le product-market fit : le moment où vos clients ne veulent plus se passer de vous. Ils reviennent, ils paient et ils en parlent autour d'eux.",
+  banque: "Bienvenue à la Banque, asseyez-vous : on va parler argent ! Le business model, c'est la façon dont votre start-up gagne sa vie : qui paie, combien, et est-ce que ça couvre vos coûts. Petit piège : celui qui paie n'est pas toujours celui qui utilise.",
+  place_lancement: "Bienvenue sur la Place du lancement ! Votre produit est prêt, il faut maintenant le faire connaître. Le go-to-market, c'est votre plan pour aller chercher vos premiers clients : par quel canal, avec quel message, et dans quel ordre.",
+};
+
+/* Petite relance avant la question, pour garder un ton de conversation. */
+export const RELANCES: Record<string, string> = {
+  tour_vision: "Alors, fermez les yeux et projetez-vous :",
+  cafe_utilisateurs: "Racontez-moi :",
+  atelier_valeur: "Dites-moi franchement :",
+  observatoire: "Sortons la longue-vue :",
+  garage_mvp: "À vos outils :",
+  salle_des_choix: "Allez, on tranche :",
+  salle_des_cartes: "Dépliez la carte :",
+  tableau_de_bord: "Alors, dites-moi :",
+  marche: "Question piège des investisseurs :",
+  banque: "Parlons chiffres :",
+  place_lancement: "Concrètement :",
 };
 
 /* Critères pondérés (total 85) : le reste vient des bonus (chiffre, précision, fil rouge). */
@@ -287,4 +317,5 @@ export const EVENEMENTS: Evenement[] = [
     ],
   },
 ];
+
 

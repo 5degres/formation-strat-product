@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Star, Lock, Send, Map as MapIcon, BookOpen, ExternalLink, LogOut, Users, Pause, Flag, RotateCcw, ArrowRight, Check, X, TrendingUp } from "lucide-react";
 import { LIEUX, FINAL, TABLEAU } from "../../supabase/functions/_shared/jeu/data.ts";
 import type { Lieu } from "../../supabase/functions/_shared/jeu/data.ts";
-import { QUARTIERS, ACCROCHES, CRITERES, quartierDe } from "../../supabase/functions/_shared/jeu/strategie.ts";
+import { QUARTIERS, ACCROCHES, CRITERES, INTROS, RELANCES, quartierDe } from "../../supabase/functions/_shared/jeu/strategie.ts";
 import { VILLAGE, INTERIOR, HALL, COUNTER, JURY, MAX_WALK, MAX_CAST, LAYOUT } from "./assets";
 import {
   SW, T, CSS, PIX, RAL, PANEL, FULL, NUM, fmt, fmtTime, WALK, IDLE, TALK, ROW,
@@ -83,6 +83,9 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
   const [arrive, setArrive] = useState(false);
   const [lieuId, setLieuId] = useState<string | null>(null);
   const [phase, setPhase] = useState<"intro" | "echange">("intro");
+  /* Répliques d'introduction de Max, affichées une par une à l'entrée d'un lieu */
+  const [introBulles, setIntroBulles] = useState<string[]>([]);
+  const [introIdx, setIntroIdx] = useState(0);
   const [logs, setLogs] = useState<Record<string, Msg[]>>(() => stockage.lire<Record<string, Msg[]>>(cleLog) ?? {});
   const [input, setInput] = useState("");
   const [attente, setAttente] = useState<Attente | null>(() => stockage.lire<Attente>(CLE_ATTENTE));
@@ -149,12 +152,15 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
     setLieuId(l.id); setInput(""); setValoAnim(null); setResultat(null); setErr(null);
     const deja = (logs[l.id] ?? []).length > 0;
     setPhase(deja ? "echange" : "intro");
+    setIntroIdx(0);
     if (!deja) {
       const qz = quartierDe(l.id);
       const premier = qz ? qz.lieux.every((x) => (logs[x] ?? []).length === 0) : false;
-      const accueil = qz && premier ? `${qz.accueil} ` : "";
-      ajouterLog(l.id, { from: "max", text: `${accueil}${l.nom}, concept : ${l.concept}. ${ACCROCHES[l.id] ?? ""} ${q(l)}` });
-    }
+      const presentation = INTROS[l.id] ?? ACCROCHES[l.id] ?? l.nom;
+      const question = `${RELANCES[l.id] ? `${RELANCES[l.id]} ` : ""}${q(l)}`;
+      setIntroBulles([...(qz && premier ? [qz.accueil] : []), presentation, question]);
+      ajouterLog(l.id, { from: "max", text: `${qz && premier ? `${qz.accueil} ` : ""}${presentation} ${question}` });
+    } else setIntroBulles([]);
     setEcran("lieu");
     if (!verrouille) rpc("deplacer_equipe", { p_token: token, p_lieu: l.id }).then(rafraichir, () => undefined);
   };
@@ -379,8 +385,15 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
           <div style={{ position: "absolute", right: 14, top: 90 }}>
             <PxButton variant="cream" size={14} onClick={allerCarte}><MapIcon size={14} /> Retour au village</PxButton>
           </div>
-          <DialogBox key={`intro-${lieu.id}`} text={log[0]?.text ?? q(lieu)} nextLabel="Répondre" onNext={() => setPhase("echange")}
-            style={{ left: 150, bottom: 16, width: 980, minHeight: 96 }} />
+          {(() => {
+            const bulles = introBulles.length > 0 ? introBulles : [log[0]?.text ?? q(lieu)];
+            const i = Math.min(introIdx, bulles.length - 1);
+            const last = i >= bulles.length - 1;
+            return (
+              <DialogBox key={`intro-${lieu.id}-${i}`} text={bulles[i]} nextLabel={last ? "Répondre" : "Suite"} onNext={() => (last ? setPhase("echange") : setIntroIdx(i + 1))}
+                style={{ left: 150, bottom: 16, width: 980, minHeight: 96 }} />
+            );
+          })()}
           {bandeauPause}
         </>
       );
@@ -828,3 +841,4 @@ function Bilan({ res, vu, lieu, regles, maxValo, valorisation, nextReco, verroui
     </motion.div>
   );
 }
+
