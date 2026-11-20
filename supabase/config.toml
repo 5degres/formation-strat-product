@@ -1,0 +1,7 @@
+# Configuration minimale pour la CLI Supabase.
+project_id = "startup-quest"
+
+[functions.repondre]
+# Les équipes n'ont pas de compte Supabase : la fonction est appelée avec la clé anon,
+# et l'authentification se fait par le jeton secret de l'équipe.
+verify_jwt = false
