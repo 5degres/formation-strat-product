@@ -5,6 +5,9 @@ import { IndicateurSync, LIBELLE_STATUT, Minuteur, PARTIE_VERROUILLEE, fmt, fmtD
 import { LIEUX } from "../supabase/functions/_shared/jeu/data.ts";
 import Carte from "./Carte";
 import Podium from "./Podium";
+import JeuPixel from "./jeu/JeuPixel";
+
+const MODE_CLASSIQUE = new URLSearchParams(window.location.search).has("classique");
 
 type Attente = { id: string; lieu: string; reponse: string };
 const CLE_ATTENTE = "sq_attente";
@@ -23,6 +26,15 @@ export default function Equipe({ token, onQuitter }: { token: string; onQuitter:
     );
   }
   const s = etat.session;
+  /* Interface pixel art de la v3 par défaut ; l'ancienne interface « formulaire »
+     reste accessible avec ?classique=1 (dépannage, accessibilité, petits écrans). */
+  if (!MODE_CLASSIQUE) {
+    return (
+      <JeuPixel etat={etat} token={token} rafraichir={rafraichir} decalage={decalage}
+        derniereSync={derniereSync} erreurSync={!!erreur} onQuitter={onQuitter}
+        lobby={<Lobby etat={etat} token={token} rafraichir={rafraichir} />} />
+    );
+  }
   return (
     <main className="page">
       <Hud etat={etat} decalage={decalage} derniereSync={derniereSync} erreurSync={!!erreur} onQuitter={onQuitter} />
