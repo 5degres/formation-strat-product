@@ -290,7 +290,7 @@ export function Bang({ left, top, size = 34 }: { left: number | string; top: num
 }
 
 /* ---------- HUD ---------- */
-export function ValoGauge({ valo, anim }: { valo: number; anim: ValoAnim | null }) {
+export function ValoGauge({ valo, anim, fleche = true }: { valo: number; anim: ValoAnim | null; fleche?: boolean }) {
   const counted = useCountUp(anim);
   const pill = (v: number, faded?: boolean) => (
     <div style={{ ...NUM, background: faded ? "var(--c-ink)" : "var(--c-green)", color: faded ? "var(--c-mint)" : "var(--c-white)", border: "3px solid var(--c-ink)", borderRadius: 8, padding: "1px 16px", fontSize: faded ? 14 : 20, minWidth: faded ? 0 : 176, textAlign: "center", boxShadow: "inset 0 3px 0 0 var(--c-teal)" }}>{fmt(v)}</div>
@@ -308,7 +308,7 @@ export function ValoGauge({ valo, anim }: { valo: number; anim: ValoAnim | null 
         ) : (
           pill(valo)
         )}
-        <PixelIcon rows={ARROW} size={28} fill="var(--px-up)" outline="var(--c-ink)" />
+        {fleche ? <PixelIcon rows={ARROW} size={28} fill="var(--px-up)" outline="var(--c-ink)" /> : null}
       </div>
     </div>
   );

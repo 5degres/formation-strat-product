@@ -17,6 +17,8 @@ import { IndicateurSync, LIBELLE_STATUT, nouvelId, tempsRestant, useMaintenant }
 import { chatReply, routerMessage } from "./max";
 import { parlerAMax } from "./maxDust";
 import { Habitants, PersoEcoute, usePlanche } from "./habitants";
+import { MenuCarte, FenetresMenu } from "./menus";
+import type { Fenetre } from "./menus";
 import "./theme.css";
 
 /* =========================================================
@@ -76,6 +78,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
   const enJeu = s.statut === "RUNNING" || s.statut === "PAUSED" || s.statut === "FINISHED";
   const cleIntro = "sq_intro_vue_" + e.equipe_id;
   const cleLog = "sq_log_" + e.equipe_id;
+  const cleFiche = "sq_fiche_" + e.equipe_id;
 
   const [ecran, setEcran] = useState<Ecran>(() => (stockage.lire<boolean>(cleIntro) ? "carte" : "intro"));
   const [introStep, setIntroStep] = useState(0);
@@ -95,9 +98,13 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
   const saisieRef = useRef<HTMLTextAreaElement>(null);
   const [secours, setSecours] = useState(false);
   const [marche, setMarche] = useState<Marche | null>(null);
+  const [fenetre, setFenetre] = useState<Fenetre | null>(null);
+  /* Réponses retenues pour la fiche de la start-up (dernière réponse notée de chaque lieu). */
+  const [reponsesFiche, setReponsesFiche] = useState<Record<string, string>>(() => stockage.lire<Record<string, string>>(cleFiche) ?? {});
   const maintenant = useMaintenant(500);
 
   useEffect(() => { stockage.ecrire(cleLog, logs); }, [cleLog, logs]);
+  useEffect(() => { stockage.ecrire(cleFiche, reponsesFiche); }, [cleFiche, reponsesFiche]);
   useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" }); }, [logs, lieuId, phase, resultat]);
   /* Une réponse restée en attente (coupure réseau, rechargement) rouvre directement son lieu. */
   useEffect(() => {
@@ -160,7 +167,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
 
   const ouvrirLieu = (l: Lieu) => {
     if (s.statut === "FINISHED") return;
-    setLieuId(l.id); setInput(""); setValoAnim(null); setResultat(null); setErr(null);
+    setLieuId(l.id); setInput(""); setValoAnim(null); setResultat(null); setErr(null); setFenetre(null);
     const deja = (logs[l.id] ?? []).length > 0;
     setPhase(deja ? "echange" : "intro");
     if (!deja) {
@@ -189,6 +196,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
   /* Affiche le résultat d'une réponse notée (par Max ou, en secours, par le moteur de règles). */
   const afficherResultat = (l: Lieu, a: Attente, r: ResultatReponse, texte: string, avant: number, t: number) => {
     ajouterLog(l.id, { from: "max", text: texte });
+    if (r.verdict !== "insuffisante" || !reponsesFiche[l.id]) setReponsesFiche((x) => ({ ...x, [l.id]: a.reponse }));
     const tt = r.tentative || t;
     const arr = (v: number) => Math.round(v / 1000) * 1000;
     const encore = !r.valide && tt < regles.max_tentatives;
@@ -527,7 +535,6 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
         </button>
       );
     };
-    const top3: LigneClassement[] = etat.classement.slice(0, 3);
     const texteCarte = (() => {
       if (s.statut === "PAUSED") return "Petite pause : l'animateur reprend la main. Vous pouvez relire vos échanges ; la notation reprendra avec la partie.";
       if (!reco) return "Bravo, tout est validé ! Préparez votre pitch : il se présente en salle, devant le jury, à la fin du temps.";
@@ -562,8 +569,8 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
         <Habitants equipes={etat.equipes} place={PLACE} masquer={marche ? e.equipe_id : null} />
         <MaxMarcheur marche={marche} onArrivee={arriveeMarche} compagnon={e.equipe_id} />
 
-        {startupCard}
-        <ValoGauge key={valoAnim?.k ?? 0} valo={e.valorisation} anim={null} />
+        <MenuCarte ouvert={fenetre} onOuvrir={setFenetre} />
+        <ValoGauge key={valoAnim?.k ?? 0} valo={e.valorisation} anim={null} fleche={false} />
         {timerCard(
           <>
             <div style={{ ...NUM, fontSize: 14, lineHeight: 1.2, textAlign: "center" }}>{nbValides}/{LIEUX.length}<div style={{ ...PIX, fontSize: 14, fontWeight: 500, color: "var(--c-green)" }}>lieux</div></div>
@@ -573,24 +580,6 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
         {barreSync}
         {bandeauPause}
 
-        {s.visibilite !== "AUCUN" ? (
-          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3 }}
-            style={{ ...PANEL, position: "absolute", right: 14, bottom: 14, width: 300, overflow: "hidden", zIndex: 40 }}>
-            <div style={{ ...PIX, background: "var(--c-green)", color: "var(--c-cream)", fontSize: 15, fontWeight: 700, padding: "4px 10px", borderBottom: "3px solid var(--c-ink)", display: "flex", alignItems: "center", gap: 6 }}>
-              <Star size={14} fill="var(--px-gold)" color="var(--c-ink)" /> Classement en direct
-            </div>
-            <div style={{ padding: "6px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
-              {top3.map((c) => <LigneRang key={c.equipe_id} c={c} />)}
-              {e.rang > 3 ? (
-                <>
-                  <div style={{ ...NUM, fontSize: 9, textAlign: "center", color: "var(--c-muted)" }}>· · ·</div>
-                  <LigneRang c={{ equipe_id: e.equipe_id, rang: e.rang, entreprise: e.entreprise, membres: e.membres, valorisation: e.valorisation, valorisation_finale: null, bonus_jury_pct: null, nb_lieux: nbValides, moi: true }} />
-                </>
-              ) : null}
-            </div>
-          </motion.div>
-        ) : null}
-
         {dialogCarte ? (
           <DialogBox key={`carte-${nbValides}-${s.statut}`} onNext={() => setDialogCarte(false)} nextLabel="Fermer" text={texteCarte}
             style={{ left: 250, bottom: 16, width: 600, maxHeight: 150 }} />
@@ -598,6 +587,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
           <button type="button" onClick={() => setDialogCarte(true)} aria-label="Rouvrir le dialogue de Max" style={{ ...PIX, position: "absolute", left: 268, bottom: 16, background: "var(--c-green)", color: "var(--c-cream)", border: "3px solid var(--c-ink)", borderRadius: 5, padding: "1px 18px", fontSize: 18, fontWeight: 600, cursor: "pointer", boxShadow: "2px 2px 0 0 var(--c-ink)" }}>Max</button>
         )}
         {deltaFloat}
+        <FenetresMenu ouvert={fenetre} etat={etat} reponses={reponsesFiche} onFermer={() => setFenetre(null)} />
       </>
     );
   }

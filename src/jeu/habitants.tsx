@@ -346,3 +346,14 @@ export function PersoEcoute({ equipeId, nom, scale, sens = ROW.right, etiquette 
     </div>
   );
 }
+
+/** Portrait (tête du personnage de face) d'une équipe, pour les fiches et le classement. */
+export function Portrait({ id, size = 36 }: { id: string; size?: number }) {
+  const url = usePlanche(id);
+  const k = size / 32; // zone de 32 px autour de la tête dans une image LPC de 64 px
+  return (
+    <div aria-hidden="true" style={{ width: size, height: size, flexShrink: 0, borderRadius: 4, border: "2px solid var(--c-ink)", background: "var(--c-mint)", overflow: "hidden", boxSizing: "content-box" }}>
+      {url ? <div style={{ width: size, height: size, backgroundImage: `url(${url})`, backgroundRepeat: "no-repeat", backgroundSize: `${576 * k}px ${256 * k}px`, backgroundPosition: `${-16 * k}px ${-(128 + 8) * k}px`, imageRendering: "pixelated" }} /> : null}
+    </div>
+  );
+}
