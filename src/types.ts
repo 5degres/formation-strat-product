@@ -50,5 +50,7 @@ export type ResultatReponse = {
   details: {
     acquis?: string[]; manquant?: string | null; piege?: string | null; garde?: string | null;
     fil_rouge?: { ok: boolean; texte: string } | null; explication?: string; conseil?: string; piste?: string;
+    /* Présents quand c'est Max (agent Dust) qui a noté la réponse */
+    source?: "max"; criteres?: { label: string; ok: boolean; conseil: string | null }[]; points_forts?: string[]; commentaire?: string;
   };
 };

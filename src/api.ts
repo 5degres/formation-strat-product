@@ -29,6 +29,8 @@ export const MESSAGES: Record<string, string> = {
   AUCUNE_EQUIPE: "Aucune équipe n'a rejoint le salon.",
   BONUS_INVALIDE: "Le bonus jury doit être compris entre -10 % et +10 %.",
   EQUIPE_NON_QUALIFIEE: "Le bonus jury ne s'applique qu'aux équipes qualifiées pour le pitch.",
+  MAX_TROP_LENT: "Max met trop de temps à répondre. Réessayez.",
+  REQUETE_INVALIDE: "Message invalide.",
   RESEAU: "Connexion au serveur impossible. Vérifiez le réseau puis réessayez.",
   CONFIG: "L'application n'est pas configurée (variables Supabase manquantes).",
 };

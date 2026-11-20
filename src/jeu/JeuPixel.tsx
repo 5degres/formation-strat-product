@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Star, Lock, Send, Map as MapIcon, BookOpen, ExternalLink, LogOut, Users, Pause, Flag } from "lucide-react";
+import { Star, Lock, Send, Map as MapIcon, BookOpen, ExternalLink, LogOut, Users, Pause, Flag, RotateCcw, ArrowRight, Check, X, TrendingUp } from "lucide-react";
 import { LIEUX, FINAL, TABLEAU } from "../../supabase/functions/_shared/jeu/data.ts";
 import type { Lieu } from "../../supabase/functions/_shared/jeu/data.ts";
-import { QUARTIERS, ACCROCHES, quartierDe } from "../../supabase/functions/_shared/jeu/strategie.ts";
+import { QUARTIERS, ACCROCHES, CRITERES, quartierDe } from "../../supabase/functions/_shared/jeu/strategie.ts";
 import { VILLAGE, INTERIOR, HALL, COUNTER, JURY, MAX_WALK, MAX_CAST, LAYOUT } from "./assets";
 import {
   SW, T, CSS, PIX, RAL, PANEL, FULL, NUM, fmt, fmtTime, WALK, IDLE, TALK, ROW,
@@ -15,6 +15,7 @@ import { ErreurJeu, envoyerReponse, rpc, stockage } from "../api";
 import type { EtatEquipe, LigneClassement, Presence, ResultatReponse } from "../types";
 import { IndicateurSync, LIBELLE_STATUT, nouvelId, tempsRestant, useMaintenant } from "../util";
 import { chatReply, routerMessage } from "./max";
+import { parlerAMax } from "./maxDust";
 import "./theme.css";
 
 /* =========================================================
@@ -30,7 +31,12 @@ type Verdict = "excellente" | "correcte" | "insuffisante";
 type Ecran = "intro" | "carte" | "lieu";
 type Msg = { from: "max" | "duo"; text: string };
 type Attente = { id: string; lieu: string; reponse: string };
-type Resultat = { lieuId: string; verdict: Verdict; score: number; delta: number; potMin: number; potMax: number; k: number };
+type Resultat = {
+  lieuId: string; verdict: Verdict; score: number; delta: number; potMin: number; potMax: number; k: number;
+  reponse: string; valide: boolean; tentative: number; acquis: string[]; filRouge: { ok: boolean; texte: string } | null;
+  parMax: boolean; criteres: { label: string; ok: boolean; conseil: string | null }[] | null; conseil: string | null;
+  potSuivant: { correcte: number; excellente: number } | null;
+};
 
 const CLE_ATTENTE = "sq_attente";
 const VERDICT_UI: Record<Verdict, { label: string; stars: number }> = {
@@ -85,13 +91,14 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
   const [resultat, setResultat] = useState<Resultat | null>(null);
   const [valoAnim, setValoAnim] = useState<ValoAnim | null>(null);
   const [delta, setDelta] = useState<{ v: number; k: number } | null>(null);
-  const [route, setRoute] = useState<"evaluer" | "discuter" | null>(null);
   const [dialogCarte, setDialogCarte] = useState(true);
   const logRef = useRef<HTMLDivElement>(null);
+  const saisieRef = useRef<HTMLTextAreaElement>(null);
+  const [secours, setSecours] = useState(false);
   const maintenant = useMaintenant(500);
 
   useEffect(() => { stockage.ecrire(cleLog, logs); }, [cleLog, logs]);
-  useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight }); }, [logs, lieuId, phase, resultat]);
+  useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" }); }, [logs, lieuId, phase, resultat]);
   /* Une réponse restée en attente (coupure réseau, rechargement) rouvre directement son lieu. */
   useEffect(() => {
     if (attente && enJeu && stockage.lire<boolean>(cleIntro)) { setLieuId(attente.lieu); setPhase("echange"); setEcran("lieu"); }
@@ -139,7 +146,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
 
   const ouvrirLieu = (l: Lieu) => {
     if (s.statut === "FINISHED") return;
-    setLieuId(l.id); setInput(""); setValoAnim(null); setResultat(null); setErr(null); setRoute(null);
+    setLieuId(l.id); setInput(""); setValoAnim(null); setResultat(null); setErr(null);
     const deja = (logs[l.id] ?? []).length > 0;
     setPhase(deja ? "echange" : "intro");
     if (!deja) {
@@ -152,65 +159,78 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
     if (!verrouille) rpc("deplacer_equipe", { p_token: token, p_lieu: l.id }).then(rafraichir, () => undefined);
   };
 
-  /* Texte de Max à partir du verdict calculé par le serveur */
+  /* Texte court de Max à partir du verdict calculé par le serveur.
+     Le détail (critères, barres, conseils) est affiché dans le bilan sous le message. */
   const texteMax = (l: Lieu, r: ResultatReponse) => {
     const d = r.details ?? {};
-    const bilan = [
-      d.acquis && d.acquis.length > 0 ? `Points forts : ${d.acquis.join(", ")}.` : "",
-      d.manquant ? `À renforcer : ${d.manquant}` : "",
-      d.piege ?? "", d.garde ?? "", d.fil_rouge?.texte ?? "",
-    ].filter(Boolean).join(" ");
-    const next = prochain(l.id);
-    const suite = next ? ` Prochaine étape conseillée : ${next.nom}.` : " Tous les lieux sont validés : préparez votre pitch pour la Salle des investisseurs !";
-    if (r.verdict === "excellente") return `Excellente réponse ! Qualité : ${r.score}/100. ${signe(r.delta)}. ${bilan} ${d.explication ?? l.explication}${suite}`;
-    if (r.verdict === "correcte") return `Réponse correcte, qualité : ${r.score}/100. Lieu validé : ${signe(r.delta)}. ${bilan}${suite}`;
-    if (r.valide) return `À retravailler, qualité : ${r.score}/100 (${signe(r.delta)}). ${bilan} Voici une piste : ${d.piste ?? l.piste} Retenez : ${d.explication ?? l.explication}${suite}`;
-    return `Pas encore convaincant, qualité : ${r.score}/100 (${signe(r.delta)}). ${bilan} ${d.conseil ? `Conseil : ${d.conseil} ` : ""}Reformulez, ou discutez avec moi sans notation avant de retenter.`;
+    const alerte = [d.garde, d.piege].filter(Boolean).join(" ");
+    if (r.verdict === "excellente") return `Excellente réponse ! Votre start-up gagne ${signe(r.delta)}. ${d.explication ?? l.explication}`;
+    if (r.verdict === "correcte") return `Bonne réponse, lieu validé : ${signe(r.delta)}. C'est solide, mais il manquait un peu de précision pour décrocher « Excellente ». Le bilan ci-dessous vous montre quoi.`;
+    if (r.valide) return `Dernière tentative utilisée (${signe(r.delta)}). Le lieu est validé, sans gain. ${alerte} Voici une piste pour la suite : ${d.piste ?? l.piste}`;
+    return `Pas encore convaincant : ${signe(r.delta)}. ${alerte} Regardez le bilan juste en dessous, il vous dit quoi ajouter pour gagner de l'argent à la prochaine tentative.`;
   };
 
   /* Envoi idempotent : l'identifiant est conservé jusqu'à confirmation du serveur,
      si bien qu'un renvoi après coupure réseau ou rechargement ne compte jamais double. */
-  const envoyerServeur = async (a: Attente) => {
+  /* Affiche le résultat d'une réponse notée (par Max ou, en secours, par le moteur de règles). */
+  const afficherResultat = (l: Lieu, a: Attente, r: ResultatReponse, texte: string, avant: number, t: number) => {
+    ajouterLog(l.id, { from: "max", text: texte });
+    const tt = r.tentative || t;
+    const arr = (v: number) => Math.round(v / 1000) * 1000;
+    const encore = !r.valide && tt < regles.max_tentatives;
+    const d = r.details ?? {};
+    setResultat({
+      lieuId: l.id, verdict: r.verdict, score: r.score, delta: r.delta, k: Date.now(),
+      potMin: arr((r.verdict === "insuffisante" ? 0 : regles.correcte) * coef(tt)),
+      potMax: arr(regles.excellente * coef(tt)),
+      reponse: a.reponse, valide: r.valide, tentative: tt, acquis: d.acquis ?? [], filRouge: d.fil_rouge ?? null,
+      parMax: d.source === "max", criteres: d.source === "max" && d.criteres?.length ? d.criteres : null, conseil: d.source === "max" ? d.conseil ?? null : null,
+      potSuivant: encore ? { correcte: arr(regles.correcte * coef(tt + 1)), excellente: arr(regles.excellente * coef(tt + 1)) } : null,
+    });
+    if (!r.deja_traite) { setValoAnim({ from: avant, to: r.valorisation, k: Date.now() }); setDelta({ v: r.delta, k: Date.now() }); }
+  };
+
+  /* Envoi d'un message : Max (Dust) décide s'il discute ou s'il note.
+     S'il est indisponible, le moteur de règles prend le relais (secours). Idempotent grâce à a.id. */
+  const envoyerServeur = async (a: Attente, relance = false) => {
     if (envoi) return;
     const l = LIEUX.find((x) => x.id === a.lieu);
     if (!l) return;
-    setEnvoi(true); setErr(null);
+    setEnvoi(true); setErr(null); setResultat(null);
+    if (!relance) ajouterLog(l.id, { from: "duo", text: a.reponse });
+    setInput("");
     const avant = e.valorisation;
     const t = tentatives(l.id) + 1;
     try {
-      const r = await envoyerReponse<ResultatReponse>({ token, client_action_id: a.id, lieu: a.lieu, reponse: a.reponse });
-      ajouterLog(l.id, { from: "duo", text: a.reponse }, { from: "max", text: texteMax(l, r) });
-      const tt = r.tentative || t;
-      setResultat({
-        lieuId: l.id, verdict: r.verdict, score: r.score, delta: r.delta, k: Date.now(),
-        potMin: Math.round(((r.verdict === "insuffisante" ? 0 : regles.correcte) * coef(tt)) / 1000) * 1000,
-        potMax: Math.round((regles.excellente * coef(tt)) / 1000) * 1000,
-      });
-      if (!r.deja_traite) { setValoAnim({ from: avant, to: r.valorisation, k: Date.now() }); setDelta({ v: r.delta, k: Date.now() }); }
-      stockage.effacer(CLE_ATTENTE); setAttente(null); setInput("");
+      const m = await parlerAMax({ token, equipeId: e.equipe_id, clientActionId: a.id, lieu: a.lieu, message: a.reponse });
+      if (m && m.mode === "evaluation" && m.resultat) {
+        setSecours(false);
+        afficherResultat(l, a, m.resultat, m.texte, avant, t);
+      } else if (m) {
+        setSecours(false);
+        ajouterLog(l.id, { from: "max", text: m.texte });
+      } else {
+        setSecours(true);
+        const peutEvaluer = !valides.includes(l.id) && !verrouille;
+        if (routerMessage(a.reponse, l, peutEvaluer) === "discuter") ajouterLog(l.id, { from: "max", text: chatReply(a.reponse, l) });
+        else {
+          const r = await envoyerReponse<ResultatReponse>({ token, client_action_id: a.id, lieu: a.lieu, reponse: a.reponse });
+          afficherResultat(l, a, r, texteMax(l, r), avant, t);
+        }
+      }
+      stockage.effacer(CLE_ATTENTE); setAttente(null);
       rafraichir();
     } catch (x) {
       const er = x instanceof ErreurJeu ? x : new ErreurJeu("RESEAU");
       setErr(er.message);
-      if (er.code !== "RESEAU") { stockage.effacer(CLE_ATTENTE); setAttente(null); setInput(a.reponse); }
+      if (er.code === "RESEAU") { stockage.ecrire(CLE_ATTENTE, a); setAttente(a); }
+      else { stockage.effacer(CLE_ATTENTE); setAttente(null); setInput(a.reponse); }
     } finally { setEnvoi(false); }
   };
 
   const envoyerMessage = () => {
     if (!lieu || envoi || input.trim() === "" || s.statut === "FINISHED") return;
-    const texte = input.trim();
-    const peutEvaluer = !valides.includes(lieu.id) && !verrouille;
-    const r = routerMessage(texte, lieu, peutEvaluer);
-    setRoute(r);
-    if (r === "discuter") {
-      setResultat(null);
-      ajouterLog(lieu.id, { from: "duo", text: texte }, { from: "max", text: chatReply(texte, lieu) });
-      setInput("");
-      return;
-    }
-    const a = { id: nouvelId(), lieu: lieu.id, reponse: texte };
-    stockage.ecrire(CLE_ATTENTE, a); setAttente(a);
-    void envoyerServeur(a);
+    void envoyerServeur({ id: nouvelId(), lieu: lieu.id, reponse: input.trim() });
   };
 
   /* ----- Éléments HUD partagés ----- */
@@ -297,7 +317,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
           {lobby}
         </motion.div>
         <DialogBox text={`Bonjour ${e.entreprise} ! Je suis Max. Dès que l'animateur lance la partie, je vous fais visiter le village.`}
-          style={{ left: 890, top: 590, width: 370, minHeight: 104, boxSizing: "border-box" }} />
+          style={{ left: 890, bottom: 16, width: 370 }} />
       </>,
       false, false,
     );
@@ -318,7 +338,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
         {arrive ? (
           <DialogBox key={introStep} text={introLines[introStep]} nextLabel={introStep < introLines.length - 1 ? "Suite" : "Entrer dans le village"}
             onNext={() => (introStep < introLines.length - 1 ? setIntroStep(introStep + 1) : finIntro())}
-            style={{ left: 200, top: 590, width: 880, minHeight: 104, boxSizing: "border-box" }} />
+            style={{ left: 200, bottom: 16, width: 880, minHeight: 96 }} />
         ) : null}
         <div style={{ position: "absolute", left: 14, bottom: 14 }}>
           <PxButton variant="cream" size={13} onClick={finIntro}>Passer l'intro</PxButton>
@@ -360,7 +380,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
             <PxButton variant="cream" size={14} onClick={allerCarte}><MapIcon size={14} /> Retour au village</PxButton>
           </div>
           <DialogBox key={`intro-${lieu.id}`} text={log[0]?.text ?? q(lieu)} nextLabel="Répondre" onNext={() => setPhase("echange")}
-            style={{ left: 150, top: 572, width: 980, minHeight: 118, boxSizing: "border-box" }} />
+            style={{ left: 150, bottom: 16, width: 980, minHeight: 96 }} />
           {bandeauPause}
         </>
       );
@@ -378,94 +398,74 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
               <Sprite url={parle ? MAX_CAST : MAX_WALK} cols={parle ? 7 : 9} row={ROW.down} frames={parle ? TALK : IDLE} fps={4} scale={10} label="Portrait de Max, le mentor" />
             </div>
           </div>
-          <div style={{ ...PIX, position: "absolute", left: 70, top: 596, width: 360, textAlign: "center", background: "var(--c-green)", color: "var(--c-cream)", border: "3px solid var(--c-ink)", borderRadius: 6, padding: "4px 0", fontSize: 22, fontWeight: 700, boxShadow: "3px 3px 0 0 var(--c-ink)" }}>
-            MAX <span style={{ color: "var(--c-fawn)" }}>·</span> <span style={{ fontWeight: 500, fontSize: 18 }}>Mentor · Village by 5D</span>
+          <div style={{ ...PIX, position: "absolute", left: 70, top: 596, width: 360, textAlign: "center", background: "var(--c-green)", color: "var(--c-cream)", border: "3px solid var(--c-ink)", borderRadius: 6, padding: "4px 0", fontSize: 18, fontWeight: 700, boxShadow: "3px 3px 0 0 var(--c-ink)" }}>
+            MAX <span style={{ color: "var(--c-fawn)" }}>·</span> <span style={{ fontWeight: 500, fontSize: 14 }}>Mentor · Village by 5D</span>
           </div>
 
           <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3 }}
             style={{ ...PANEL, position: "absolute", left: 14, top: 10, width: 330, height: 66, display: "flex", alignItems: "center", gap: 12, padding: "0 14px", boxSizing: "border-box" }}>
             <div style={{ minWidth: 0 }}>
-              <div style={{ ...PIX, fontSize: 20, fontWeight: 700 }}>{ok ? "Lieu validé" : `Tentative ${tentativeAff}/${regles.max_tentatives}`}</div>
+              <div style={{ ...PIX, fontSize: 17, fontWeight: 700 }}>{ok ? "Lieu validé" : `Tentative ${tentativeAff}/${regles.max_tentatives}`}</div>
               <div style={{ ...RAL, fontSize: 13, fontWeight: 600, color: "var(--c-green)", maxWidth: 190, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lieu.nom}</div>
             </div>
             <div style={{ marginLeft: "auto" }}><Hearts used={Math.min(3, t)} /></div>
           </motion.div>
           <ValoGauge key={valoAnim?.k ?? 0} valo={valoAnim ? valoAnim.to : e.valorisation} anim={valoAnim} />
           <div style={{ position: "absolute", right: 14, top: 12, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-            <PxButton variant="cream" size={16} onClick={allerCarte}><MapIcon size={16} /> Retour au village</PxButton>
+            <PxButton variant="cream" size={14} onClick={allerCarte}><MapIcon size={14} /> Retour au village</PxButton>
             <div style={{ ...NUM, background: "var(--c-ink)", color: "var(--c-cream)", border: "2px solid var(--c-cream)", borderRadius: 5, padding: "2px 10px", fontSize: 12 }} aria-label="Temps restant et rang">{chrono} · rang {e.rang}/{etat.nb_equipes}</div>
           </div>
           {nextReco && !bandeauPause ? (
-            <div style={{ ...RAL, position: "absolute", left: "50%", transform: "translateX(-50%)", top: 92, background: "var(--c-cream)", color: "var(--c-ink)", border: "2px solid var(--c-ink)", borderRadius: 999, padding: "3px 14px", fontSize: 14, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", boxShadow: "2px 2px 0 0 var(--c-ink)" }}>
+            <div style={{ ...RAL, position: "absolute", left: "50%", transform: "translateX(-50%)", top: 92, background: "var(--c-cream)", color: "var(--c-ink)", border: "2px solid var(--c-ink)", borderRadius: 999, padding: "3px 12px", fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", boxShadow: "2px 2px 0 0 var(--c-ink)" }}>
               <span style={{ width: 10, height: 10, borderRadius: 999, background: "var(--c-fawn)" }} />Lieu conseillé ensuite : <strong style={{ color: "var(--c-green)" }}>{nextReco.nom}</strong>
             </div>
           ) : null}
           {bandeauPause}
 
           <motion.div initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3 }}
-            style={{ ...PANEL, position: "absolute", left: 500, top: 132, width: 764, height: 574, display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
-            <div ref={logRef} className="sq-scroll" aria-label="Historique des échanges" style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+            style={{ ...PANEL, position: "absolute", left: 500, top: 130, width: 764, height: 576, display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
+            <div ref={logRef} className="sq-scroll" aria-label="Historique des échanges" style={{ flex: 1, overflowY: "auto", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
               {log.map((m, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: m.from === "duo" ? "flex-end" : "flex-start" }}>
-                  <div style={{ maxWidth: "82%", background: m.from === "duo" ? "var(--c-mint)" : "var(--c-white)", border: `2px solid ${m.from === "duo" ? "var(--c-teal)" : "var(--c-green)"}`, borderRadius: m.from === "duo" ? "12px 12px 2px 12px" : "12px 12px 12px 2px", padding: "8px 12px", boxShadow: "2px 2px 0 0 var(--veil-light)" }}>
-                    <div style={{ ...PIX, fontSize: 14, fontWeight: 700, color: m.from === "duo" ? "var(--c-ink)" : "var(--c-green)" }}>{m.from === "duo" ? e.entreprise : "Max"}</div>
-                    <div style={{ ...RAL, fontSize: 15, lineHeight: 1.45, fontWeight: 500 }}>{m.text}</div>
+                  <div style={{ maxWidth: "80%", background: m.from === "duo" ? "var(--c-mint)" : "var(--c-white)", border: `2px solid ${m.from === "duo" ? "var(--c-teal)" : "var(--c-green)"}`, borderRadius: m.from === "duo" ? "10px 10px 2px 10px" : "10px 10px 10px 2px", padding: "6px 11px", boxShadow: "2px 2px 0 0 var(--veil-light)", overflowWrap: "anywhere" }}>
+                    <div style={{ ...PIX, fontSize: 11, fontWeight: 700, color: m.from === "duo" ? "var(--c-ink)" : "var(--c-green)" }}>{m.from === "duo" ? e.entreprise : "Max"}</div>
+                    <div style={{ ...RAL, fontSize: 13.5, lineHeight: 1.45, fontWeight: 500, whiteSpace: "pre-wrap" }}>{m.text}</div>
                   </div>
                 </div>
               ))}
-              {envoi ? <div style={{ ...RAL, fontSize: 14, fontWeight: 700, color: "var(--c-green)" }}>Max réfléchit… (évaluation sur le serveur)</div> : null}
+              {res && vu ? (
+                <Bilan res={res} vu={vu} lieu={lieu} regles={regles} maxValo={maxValo} valorisation={e.valorisation}
+                  nextReco={nextReco} verrouille={verrouille}
+                  onRetravailler={() => { setInput(res.reponse); setResultat(null); setTimeout(() => { saisieRef.current?.focus(); saisieRef.current?.setSelectionRange(res.reponse.length, res.reponse.length); }, 50); }}
+                  onSuivant={(l) => ouvrirLieu(l)} onVillage={allerCarte} />
+              ) : null}
+              {envoi ? (
+                <div style={{ ...RAL, alignSelf: "flex-start", fontSize: 12.5, fontWeight: 700, color: "var(--c-green)", background: "var(--c-white)", border: "2px solid var(--c-green)", borderRadius: "10px 10px 10px 2px", padding: "5px 11px" }}>
+                  Max réfléchit <span className="sq-dot">●</span><span className="sq-dot">●</span><span className="sq-dot">●</span>
+                </div>
+              ) : null}
             </div>
 
-            {res ? (
-              <div style={{ position: "relative", borderTop: "3px solid var(--c-ink)", background: "var(--c-cream)", display: "flex", alignItems: "center", justifyContent: "center", gap: 18, padding: "10px 16px", minHeight: 142, flexWrap: "wrap" }}>
-                {res.delta > 0 ? <div style={{ position: "absolute", left: 260, top: 0 }}><CoinRain k={res.k} /></div> : null}
-                {vu ? (
-                  <motion.div initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.3 }} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                    <div style={{ display: "flex", gap: 4, marginBottom: -2 }}>
-                      {[0, 1, 2].map((i) => <Star key={i} size={22} fill={i < vu.stars ? "var(--px-gold)" : "var(--c-grey)"} color="var(--c-ink)" strokeWidth={2.5} />)}
-                    </div>
-                    <Ribbon text={vu.label} />
-                    <div style={{ ...NUM, marginTop: 5, fontSize: 12, color: "var(--c-green)" }}>Qualité : {res.score}/100</div>
-                  </motion.div>
-                ) : null}
-                <motion.div initial={{ y: 12, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.3, delay: 0.15 }} style={{ textAlign: "center" }}>
-                  <div style={{ ...NUM, fontSize: 32, color: res.delta >= 0 ? "var(--c-green)" : "var(--c-fawn-600)", textShadow: "3px 3px 0 var(--c-ink)", whiteSpace: "nowrap" }}>{signe(res.delta)}</div>
-                  <div style={{ ...RAL, fontSize: 12, fontWeight: 700, color: "var(--c-ink)" }}>Potentiel sur ce lieu : {fmt(res.potMin)} à {fmt(res.potMax)}</div>
-                  <div style={{ ...RAL, fontSize: 11, fontWeight: 600, color: "var(--c-muted)" }}>Valorisation totale possible : {fmt(regles.depart)} à {fmt(maxValo)}</div>
-                </motion.div>
-                {res.verdict === "insuffisante" ? (
-                  <div style={{ flexBasis: "100%", borderTop: "2px dashed var(--c-teal)", paddingTop: 8, display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
-                    <div style={{ ...RAL, width: "100%", boxSizing: "border-box", background: "var(--c-fawn-300)", border: "2px solid var(--c-fawn-700)", borderRadius: 5, padding: "5px 9px", fontSize: 12, lineHeight: 1.35, fontWeight: 700, color: "var(--c-ink)" }}>
-                      <span style={{ ...PIX, color: "var(--c-green)" }}>Piste :</span> {lieu.piste}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flexWrap: "wrap", gap: 7 }}>
-                      <span style={{ ...PIX, fontSize: 13, fontWeight: 700, color: "var(--c-green)", display: "inline-flex", alignItems: "center", gap: 5 }}><BookOpen size={15} /> Source pour progresser :</span>
-                      {(SOURCE_LINKS[lieu.id] ?? []).map((src) => <a key={src.url} href={src.url} target="_blank" rel="noreferrer" style={{ ...RAL, color: "var(--c-green)", fontSize: 12, fontWeight: 700, textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: 3 }}>{src.label} <ExternalLink size={12} /></a>)}
-                    </div>
-                  </div>
-                ) : null}
+            <div style={{ borderTop: "3px solid var(--c-ink)", background: "var(--c-mint)", padding: "8px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
+                <textarea ref={saisieRef} className="sq-input" value={enAttente ? enAttente.reponse : input} onChange={(x) => setInput(x.target.value)} rows={2} aria-label="Écrivez à Max"
+                  disabled={!!enAttente || envoi || finie}
+                  onKeyDown={(x) => { if (x.key === "Enter" && !x.shiftKey) { x.preventDefault(); envoyerMessage(); } }}
+                  placeholder={ok ? "Lieu validé : vous pouvez encore discuter avec Max." : "Écrivez à Max : votre réponse, une question, une idée…"}
+                  style={{ ...RAL, flex: 1, border: "2px solid var(--c-ink)", borderRadius: 5, padding: "7px 10px", fontSize: 14, lineHeight: 1.4, fontWeight: 500, resize: "none", background: "var(--c-white)", color: "var(--c-ink)" }} />
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, justifyContent: "center" }}>
+                  {enAttente ? (
+                    <>
+                      <PxButton onClick={() => void envoyerServeur(enAttente, true)} disabled={envoi || verrouille} size={14}><Send size={14} /> {envoi ? "Envoi…" : "Renvoyer"}</PxButton>
+                      {!envoi ? <PxButton variant="cream" size={11} onClick={() => { stockage.effacer(CLE_ATTENTE); setInput(enAttente.reponse); setAttente(null); }}>Modifier</PxButton> : null}
+                    </>
+                  ) : (
+                    <PxButton onClick={envoyerMessage} disabled={!input.trim() || envoi || finie} size={15}><Send size={14} /> Envoyer</PxButton>
+                  )}
+                </div>
               </div>
-            ) : null}
-
-            <div style={{ borderTop: "3px solid var(--c-ink)", background: "var(--c-mint)", padding: "10px 14px", display: "flex", gap: 10, alignItems: "stretch" }}>
-              <textarea className="sq-input" value={enAttente ? enAttente.reponse : input} onChange={(x) => setInput(x.target.value)} rows={2} aria-label="Écrivez à Max"
-                disabled={!!enAttente || envoi || finie}
-                onKeyDown={(x) => { if (x.key === "Enter" && !x.shiftKey) { x.preventDefault(); envoyerMessage(); } }}
-                placeholder={ok ? "Lieu validé : vous pouvez encore discuter avec Max (sans notation)." : "Écrivez à Max : votre réponse, une question, ou ce qui vous passe par la tête…"}
-                style={{ ...RAL, flex: 1, border: "2px solid var(--c-ink)", borderRadius: 5, padding: "8px 12px", fontSize: 16, fontWeight: 500, resize: "none", background: "var(--c-white)", color: "var(--c-ink)" }} />
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, justifyContent: "center" }}>
-                {enAttente ? (
-                  <>
-                    <PxButton onClick={() => void envoyerServeur(enAttente)} disabled={envoi || verrouille} size={16}><Send size={15} /> {envoi ? "Envoi…" : "Renvoyer"}</PxButton>
-                    {!envoi ? <PxButton variant="cream" size={12} onClick={() => { stockage.effacer(CLE_ATTENTE); setInput(enAttente.reponse); setAttente(null); }}>Modifier</PxButton> : null}
-                  </>
-                ) : (
-                  <PxButton onClick={envoyerMessage} disabled={!input.trim() || envoi || finie} size={18}><Send size={16} /> {envoi ? "Max réfléchit…" : "Envoyer"}</PxButton>
-                )}
-                <span role="status" style={{ ...RAL, maxWidth: 190, fontSize: 11, lineHeight: 1.2, fontWeight: 600, color: err ? "var(--c-fawn-700)" : "var(--c-ink)" }}>
-                  {err ?? (enAttente ? "Réponse en attente de confirmation du serveur." : s.statut === "PAUSED" ? "Partie en pause : discussion possible, notation suspendue." : route === "evaluer" ? "Max a évalué votre dernier message (calcul serveur)." : route === "discuter" ? "Discussion libre : ni note, ni impact sur la valorisation." : "Max décide seul : réponse à noter ou simple discussion.")}
-                </span>
-              </div>
+              {secours && !err ? <span style={{ ...RAL, fontSize: 11, fontWeight: 600, color: "var(--c-muted)" }}>Max (IA) ne répond pas pour l'instant : réponse automatique de secours.</span> : null}
+              {err ? <span role="alert" style={{ ...RAL, fontSize: 12, fontWeight: 700, color: "var(--c-fawn-700)" }}>{err}</span> : null}
             </div>
           </motion.div>
           {deltaFloat}
@@ -493,16 +493,16 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
       const below = b.y < 17;
       const t = tentatives(id);
       const ici = etat.equipes.filter((x) => x.lieu_courant === id && !x.moi).map((x) => x.entreprise);
-      const labelLeft = Math.min(Math.max((b.x + b.w / 2) * T - 135, 8), SW - 278) - (b.x * T - 4);
+      const labelLeft = Math.min(Math.max((b.x + b.w / 2) * T - 125, 8), SW - 258) - (b.x * T - 4);
       return (
         <button key={id} type="button" className="sq-zone" onClick={onClick}
           aria-label={`${nom}, ${concept}${opts.done ? ", validé" : ""}${opts.locked ? ", verrouillée" : ""}${opts.reco ? ", lieu conseillé" : ""}`}
           aria-disabled={opts.locked}
           style={{ position: "absolute", left: b.x * T - 4, top: b.y * T - 4, width: b.w * T + 8, height: b.h * T + 8, background: "transparent", border: "none", borderRadius: 8, cursor: opts.locked ? "not-allowed" : "pointer", padding: 0 }}>
-          <span className="sq-label" style={{ ...PIX, position: "absolute", left: labelLeft, top: below ? b.h * T + 12 : undefined, bottom: below ? undefined : b.h * T + 12, background: "var(--c-cream)", color: "var(--c-ink)", border: "3px solid var(--c-ink)", borderLeft: `8px solid ${quartierDe(id)?.couleur ?? "var(--px-gold)"}`, borderRadius: 5, padding: "6px 10px", fontSize: 15, fontWeight: 700, width: 270, boxSizing: "border-box", whiteSpace: "normal", boxShadow: "3px 3px 0 0 var(--c-ink)", textAlign: "left", lineHeight: 1.3, zIndex: 40 }}>
+          <span className="sq-label" style={{ ...PIX, position: "absolute", left: labelLeft, top: below ? b.h * T + 12 : undefined, bottom: below ? undefined : b.h * T + 12, background: "var(--c-cream)", color: "var(--c-ink)", border: "3px solid var(--c-ink)", borderLeft: `8px solid ${quartierDe(id)?.couleur ?? "var(--px-gold)"}`, borderRadius: 5, padding: "6px 10px", fontSize: 13, fontWeight: 700, width: 250, boxSizing: "border-box", whiteSpace: "normal", boxShadow: "3px 3px 0 0 var(--c-ink)", textAlign: "left", lineHeight: 1.3, zIndex: 40 }}>
             {nom}
             <span style={{ ...RAL, display: "block", fontSize: 12, fontWeight: 800, color: "var(--c-green)", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 2 }}>{concept}</span>
-            <span style={{ ...RAL, display: "block", fontSize: 13, fontWeight: 500, marginTop: 4 }}>{opts.desc ?? ACCROCHES[id] ?? ""}</span>
+            <span style={{ ...RAL, display: "block", fontSize: 12, fontWeight: 500, marginTop: 4, lineHeight: 1.35 }}>{opts.desc ?? ACCROCHES[id] ?? ""}</span>
             {!opts.locked ? <span style={{ ...RAL, display: "block", fontSize: 12, fontWeight: 700, marginTop: 4, color: "var(--c-fawn-700)" }}>{opts.done ? "Validé ✓" : t > 0 ? `Tentative ${t}/${regles.max_tentatives}` : "À explorer"}</span> : null}
             {ici.length > 0 ? <span style={{ ...RAL, display: "block", fontSize: 12, fontWeight: 600, marginTop: 4, color: "var(--c-muted)" }}>Ici en ce moment : {ici.join(", ")}</span> : null}
           </span>
@@ -589,9 +589,9 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
 
         {dialogCarte ? (
           <DialogBox key={`carte-${nbValides}-${s.statut}`} onNext={() => setDialogCarte(false)} nextLabel="Fermer" text={texteCarte}
-            style={{ left: 250, top: 630, width: 680, minHeight: 76, boxSizing: "border-box" }} />
+            style={{ left: 250, bottom: 16, width: 600, maxHeight: 150 }} />
         ) : (
-          <button type="button" onClick={() => setDialogCarte(true)} aria-label="Rouvrir le dialogue de Max" style={{ ...PIX, position: "absolute", left: 268, top: 676, background: "var(--c-green)", color: "var(--c-cream)", border: "3px solid var(--c-ink)", borderRadius: 5, padding: "1px 18px", fontSize: 18, fontWeight: 600, cursor: "pointer", boxShadow: "2px 2px 0 0 var(--c-ink)" }}>Max</button>
+          <button type="button" onClick={() => setDialogCarte(true)} aria-label="Rouvrir le dialogue de Max" style={{ ...PIX, position: "absolute", left: 268, bottom: 16, background: "var(--c-green)", color: "var(--c-cream)", border: "3px solid var(--c-ink)", borderRadius: 5, padding: "1px 18px", fontSize: 18, fontWeight: 600, cursor: "pointer", boxShadow: "2px 2px 0 0 var(--c-ink)" }}>Max</button>
         )}
         {deltaFloat}
       </>
@@ -690,5 +690,141 @@ function Podium({ etat }: { etat: EtatEquipe }) {
         </div>
       ) : null}
     </>
+  );
+}
+
+/* ===== Bilan d'une réponse notée : qualité, argent gagné ou perdu, critères, suite ===== */
+type Regles = EtatEquipe["session"]["regles"];
+function Barre({ valeur, max, couleur, reperes, hauteur = 14 }: { valeur: number; max: number; couleur: string; reperes?: { v: number; label: string }[]; hauteur?: number }) {
+  const pct = Math.max(0, Math.min(100, (valeur / Math.max(1, max)) * 100));
+  return (
+    <div style={{ position: "relative", paddingBottom: reperes ? 14 : 0 }}>
+      <div style={{ position: "relative", height: hauteur, background: "var(--c-white)", border: "2px solid var(--c-ink)", borderRadius: 4, overflow: "hidden" }}>
+        <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.9, ease: "easeOut" }}
+          style={{ height: "100%", background: couleur, boxShadow: "inset 0 -3px 0 0 var(--veil-light)" }} />
+        {(reperes ?? []).map((r) => <div key={r.v} style={{ position: "absolute", top: 0, bottom: 0, left: `${(r.v / max) * 100}%`, width: 2, background: "var(--c-ink)" }} />)}
+      </div>
+      {(reperes ?? []).map((r) => (
+        <span key={r.v} style={{ ...RAL, position: "absolute", top: hauteur + 3, left: `${(r.v / max) * 100}%`, transform: "translateX(-50%)", fontSize: 9.5, fontWeight: 700, color: "var(--c-muted)", whiteSpace: "nowrap" }}>{r.label}</span>
+      ))}
+    </div>
+  );
+}
+
+function Bilan({ res, vu, lieu, regles, maxValo, valorisation, nextReco, verrouille, onRetravailler, onSuivant, onVillage }: {
+  res: Resultat; vu: { label: string; stars: number }; lieu: Lieu; regles: Regles; maxValo: number; valorisation: number;
+  nextReco: Lieu | null; verrouille: boolean; onRetravailler: () => void; onSuivant: (l: Lieu) => void; onVillage: () => void;
+}) {
+  /* Critères : ceux jugés par Max s'il a noté, sinon la grille du moteur de secours. */
+  const criteres: { id: string; label: string; ok: boolean; conseil: string | null; poids: number | null }[] = res.criteres
+    ? res.criteres.map((c, i) => ({ id: String(i), label: c.label, ok: c.ok, conseil: c.conseil, poids: null }))
+    : (CRITERES[lieu.id] ?? []).map((c) => ({ id: c.id, label: c.label, ok: res.acquis.includes(c.label), conseil: c.manque, poids: c.poids }));
+  const acquis = criteres.filter((c) => c.ok);
+  const manquants = criteres.filter((c) => !c.ok);
+  const couleurQualite = res.verdict === "excellente" ? "var(--px-up)" : res.verdict === "correcte" ? "var(--px-gold)" : "var(--px-coral)";
+  const titre = (t: string) => <div style={{ ...PIX, fontSize: 11.5, fontWeight: 700, color: "var(--c-green)", textTransform: "uppercase", marginBottom: 4 }}>{t}</div>;
+  const peutRetravailler = !res.valide && !!res.potSuivant && !verrouille;
+  const gainPerdu = res.potMax - Math.max(0, res.delta);
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
+      style={{ position: "relative", alignSelf: "stretch", background: "var(--c-cream)", border: "3px solid var(--c-ink)", borderRadius: 6, boxShadow: "3px 3px 0 0 var(--c-ink)", padding: "10px 14px 12px", display: "flex", flexDirection: "column", gap: 10 }}
+      aria-label="Bilan de votre réponse">
+      {res.delta > 0 ? <div style={{ position: "absolute", left: 220, top: 0 }}><CoinRain k={res.k} /></div> : null}
+
+      {/* En-tête : verdict et montant */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 3, marginBottom: -2 }}>
+            {[0, 1, 2].map((i) => <Star key={i} size={17} fill={i < vu.stars ? "var(--px-gold)" : "var(--c-grey)"} color="var(--c-ink)" strokeWidth={2.5} />)}
+          </div>
+          <Ribbon text={vu.label} />
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ ...NUM, fontSize: 22, color: res.delta >= 0 ? "var(--c-green)" : "var(--c-fawn-600)", textShadow: "2px 2px 0 var(--c-ink)", whiteSpace: "nowrap" }}>{signe(res.delta)}</div>
+          <div style={{ ...RAL, fontSize: 11, fontWeight: 700, color: "var(--c-muted)" }}>Tentative {res.tentative}/{regles.max_tentatives} · valorisation : {fmt(valorisation)}</div>
+        </div>
+      </div>
+
+      {/* Barre 1 : qualité */}
+      <div>
+        {titre(`Qualité de la réponse : ${res.score}/100`)}
+        <Barre valeur={res.score} max={100} couleur={couleurQualite} reperes={[{ v: 50, label: "Bonne (50)" }, { v: 75, label: "Excellente (75)" }]} />
+      </div>
+
+      {/* Barre 2 : argent gagné sur ce lieu */}
+      <div>
+        {titre("Argent gagné sur ce lieu")}
+        <Barre valeur={Math.max(0, res.delta)} max={res.potMax} couleur="var(--c-teal)" reperes={res.potMin > 0 ? [{ v: res.potMin, label: `Bonne ${signe(res.potMin)}` }] : undefined} />
+        <div style={{ ...RAL, fontSize: 12, fontWeight: 600, lineHeight: 1.4, marginTop: 2 }}>
+          {res.delta < 0
+            ? <>Réponse insuffisante : malus de {Math.round((regles.malus_pct ?? 0.05) * 100)} % sur votre valorisation, soit <strong style={{ color: "var(--c-fawn-700)" }}>{signe(res.delta)}</strong>. Une réponse « Excellente » vous aurait rapporté <strong>{signe(res.potMax)}</strong>.</>
+            : gainPerdu > 0
+              ? <>Vous avez gagné <strong style={{ color: "var(--c-green)" }}>{signe(res.delta)}</strong> sur {fmt(res.potMax)} possibles à cette tentative. Il vous manquait <strong>{fmt(gainPerdu)}</strong> pour le maximum.</>
+              : <>Maximum atteint pour cette tentative : <strong style={{ color: "var(--c-green)" }}>{signe(res.delta)}</strong>.</>}
+        </div>
+        <div style={{ marginTop: 6 }}>
+          <Barre valeur={valorisation - regles.depart} max={maxValo - regles.depart} couleur="var(--c-fawn)" hauteur={8} />
+          <div style={{ ...RAL, fontSize: 10.5, fontWeight: 600, color: "var(--c-muted)" }}>Progression de la partie : {fmt(valorisation)} sur {fmt(maxValo)} possibles</div>
+        </div>
+      </div>
+
+      {/* Pourquoi : critères */}
+      {criteres.length > 0 ? (
+        <div>
+          {titre("Pourquoi cette note")}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            {acquis.map((c) => (
+              <div key={c.id} style={{ ...RAL, display: "flex", gap: 6, alignItems: "flex-start", fontSize: 12.5, fontWeight: 600 }}>
+                <span style={{ flexShrink: 0, width: 16, height: 16, borderRadius: 3, background: "var(--px-up)", border: "2px solid var(--c-ink)", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><Check size={10} strokeWidth={4} /></span>
+                <span>{c.label[0].toUpperCase() + c.label.slice(1)}{c.poids ? <span style={{ color: "var(--c-muted)" }}> (+{c.poids} pts)</span> : null}</span>
+              </div>
+            ))}
+            {manquants.map((c) => (
+              <div key={c.id} style={{ ...RAL, display: "flex", gap: 6, alignItems: "flex-start", fontSize: 12.5, fontWeight: 600 }}>
+                <span style={{ flexShrink: 0, width: 16, height: 16, borderRadius: 3, background: "var(--px-coral)", border: "2px solid var(--c-ink)", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><X size={10} strokeWidth={4} /></span>
+                <span>{c.label[0].toUpperCase() + c.label.slice(1)}{c.poids ? <span style={{ color: "var(--c-muted)" }}> (+{c.poids} pts possibles)</span> : null}{c.conseil ? <> : <span style={{ fontWeight: 500 }}>{c.conseil}</span></> : null}</span>
+              </div>
+            ))}
+            {res.filRouge ? <div style={{ ...RAL, fontSize: 12, fontWeight: 600, color: res.filRouge.ok ? "var(--c-green)" : "var(--c-fawn-700)" }}>{res.filRouge.texte}</div> : null}
+            <div style={{ ...RAL, fontSize: 10.5, fontWeight: 600, color: "var(--c-muted)" }}>{res.parMax ? "Note attribuée par Max, selon son expertise produit appliquée à votre start-up." : "Notation automatique de secours. Bonus : +5 avec un chiffre, +5 si la réponse fait entre 15 et 120 mots."}</div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Comment faire mieux */}
+      {res.verdict !== "excellente" ? (
+        <div style={{ ...RAL, background: "var(--c-fawn-300)", border: "2px solid var(--c-fawn-700)", borderRadius: 5, padding: "6px 10px", fontSize: 12.5, lineHeight: 1.4, fontWeight: 600 }}>
+          <span style={{ ...PIX, color: "var(--c-green)", display: "inline-flex", alignItems: "center", gap: 4 }}><TrendingUp size={13} /> Pour gagner plus :</span>{" "}
+          {res.conseil ?? manquants[0]?.conseil ?? lieu.conseil}
+          {res.potSuivant ? <> À la prochaine tentative : <strong>{signe(res.potSuivant.correcte)}</strong> pour une bonne réponse, <strong>{signe(res.potSuivant.excellente)}</strong> pour une excellente.</> : null}
+          {res.verdict === "insuffisante" ? (
+            <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+              <span style={{ ...PIX, fontSize: 11, color: "var(--c-green)", display: "inline-flex", alignItems: "center", gap: 4 }}><BookOpen size={12} /> Source :</span>
+              {(SOURCE_LINKS[lieu.id] ?? []).map((src) => <a key={src.url} href={src.url} target="_blank" rel="noreferrer" style={{ color: "var(--c-green)", fontSize: 12, fontWeight: 700, textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: 3 }}>{src.label} <ExternalLink size={11} /></a>)}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Et maintenant ? */}
+      <div style={{ borderTop: "2px dashed var(--c-teal)", paddingTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ ...PIX, fontSize: 13, fontWeight: 700 }}>
+          {peutRetravailler ? "Voulez-vous retravailler votre réponse ?" : res.valide ? "Lieu validé ! On continue ?" : "Plus de tentative sur ce lieu."}
+        </span>
+        <div style={{ display: "flex", gap: 8 }}>
+          {peutRetravailler ? (
+            <>
+              <PxButton size={12} onClick={onRetravailler}><RotateCcw size={12} /> Retravailler</PxButton>
+              <PxButton size={12} variant="cream" onClick={onVillage}>Plus tard</PxButton>
+            </>
+          ) : (
+            <>
+              {nextReco ? <PxButton size={12} variant="green" onClick={() => onSuivant(nextReco)}>{nextReco.nom} <ArrowRight size={12} /></PxButton> : null}
+              <PxButton size={12} variant="cream" onClick={onVillage}><MapIcon size={12} /> Village</PxButton>
+            </>
+          )}
+        </div>
+      </div>
+    </motion.div>
   );
 }

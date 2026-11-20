@@ -23,7 +23,9 @@ export const CSS =
   ".sq-zone:hover .sq-label,.sq-zone:focus-visible .sq-label{opacity:1;visibility:visible}" +
   
   ".sq-scroll::-webkit-scrollbar{width:10px}.sq-scroll::-webkit-scrollbar-thumb{background:var(--c-green);border-radius:4px;border:2px solid var(--c-cream)}" +
-  ".sq-input::placeholder{color:var(--c-muted);opacity:.8}";
+  ".sq-input::placeholder{color:var(--c-muted);opacity:.8}" +
+  ".sq-input:focus{outline:3px solid var(--c-fawn-600);outline-offset:1px}" +
+  "@keyframes sqdots{0%,20%{opacity:.2}50%{opacity:1}100%{opacity:.2}}.sq-dot{animation:sqdots 1.2s infinite}.sq-dot:nth-child(2){animation-delay:.2s}.sq-dot:nth-child(3){animation-delay:.4s}";
 
 export const FONT_HREF =
   "https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=Press+Start+2P&family=Raleway:wght@400;500;600;700&display=swap";
@@ -253,13 +255,13 @@ export function DialogBox({ text, onNext, nextLabel, style }: { text: string; on
       aria-label="Boîte de dialogue de Max, cliquer pour continuer"
       onClick={() => (done ? onNext?.() : skip())}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (done) onNext?.(); else skip(); } }}
-      style={{ ...PANEL, position: "absolute", padding: "22px 26px 16px", cursor: "pointer", ...style }}
+      style={{ ...PANEL, position: "absolute", padding: "18px 22px 14px", cursor: "pointer", maxHeight: 220, boxSizing: "border-box", ...style }}
     >
-      <span style={{ ...PIX, position: "absolute", left: 18, top: -19, background: "var(--c-green)", color: "var(--c-cream)", border: "3px solid var(--c-ink)", borderRadius: 5, padding: "1px 18px", fontSize: 18, fontWeight: 600 }}>Max</span>
-      <p aria-live="polite" style={{ ...RAL, margin: 0, fontSize: 19, lineHeight: 1.45, fontWeight: 500, color: "var(--c-ink)", paddingRight: 90 }}>{shown}</p>
+      <span style={{ ...PIX, position: "absolute", left: 18, top: -19, background: "var(--c-green)", color: "var(--c-cream)", border: "3px solid var(--c-ink)", borderRadius: 5, padding: "1px 14px", fontSize: 15, fontWeight: 600 }}>Max</span>
+      <p aria-live="polite" className="sq-scroll" style={{ ...RAL, margin: 0, fontSize: 15, lineHeight: 1.45, fontWeight: 500, color: "var(--c-ink)", paddingRight: 84, maxHeight: 176, overflowY: "auto" }}>{shown}</p>
       {done ? (
         <div style={{ position: "absolute", right: 14, bottom: 8, display: "flex", alignItems: "center", gap: 8, animation: "sqblink 1s steps(1) infinite" }}>
-          {nextLabel ? <span style={{ ...PIX, fontSize: 15, color: "var(--c-green)", fontWeight: 600 }}>{nextLabel}</span> : null}
+          {nextLabel ? <span style={{ ...PIX, fontSize: 13, color: "var(--c-green)", fontWeight: 600 }}>{nextLabel}</span> : null}
           <svg width="16" height="12" viewBox="0 0 4 3" shapeRendering="crispEdges" aria-hidden="true"><polygon points="0,0 4,0 2,3" fill="var(--c-green)" /></svg>
         </div>
       ) : null}
@@ -325,8 +327,8 @@ export function TopLeftCard({ title, subtitle }: { title: string; subtitle: stri
       style={{ ...PANEL, position: "absolute", left: 14, top: 10, width: 330, height: 66, display: "flex", alignItems: "center", gap: 12, padding: "0 14px", boxSizing: "border-box" }}>
       <Cube />
       <div style={{ minWidth: 0 }}>
-        <div style={{ ...PIX, fontSize: 21, fontWeight: 700, lineHeight: 1.1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 250 }}>{title}</div>
-        <div style={{ ...RAL, fontSize: 14, fontWeight: 600, color: "var(--c-green)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 250 }}>{subtitle}</div>
+        <div style={{ ...PIX, fontSize: 18, fontWeight: 700, lineHeight: 1.1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 250 }}>{title}</div>
+        <div style={{ ...RAL, fontSize: 13, fontWeight: 600, color: "var(--c-green)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 250 }}>{subtitle}</div>
       </div>
     </motion.div>
   );
@@ -349,7 +351,7 @@ export function CoinRain({ k }: { k: number }) {
 export function Ribbon({ text }: { text: string }) {
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
-      <svg width="260" height="46" viewBox="0 0 130 23" shapeRendering="crispEdges" aria-hidden="true" style={{ display: "block" }}>
+      <svg width="208" height="37" viewBox="0 0 130 23" shapeRendering="crispEdges" aria-hidden="true" style={{ display: "block" }}>
         <polygon points="0,6 12,6 12,22 0,22 5,14" fill="var(--c-ink)" />
         <polygon points="130,6 118,6 118,22 130,22 125,14" fill="var(--c-ink)" />
         <polygon points="2,8 12,8 12,20 2,20 6,14" fill="var(--c-green)" />
@@ -358,7 +360,7 @@ export function Ribbon({ text }: { text: string }) {
         <rect x="11" y="3" width="108" height="14" fill="var(--c-green)" />
         <rect x="11" y="3" width="108" height="2" fill="var(--c-teal)" />
       </svg>
-      <span style={{ ...PIX, position: "absolute", left: 0, right: 0, top: 6, textAlign: "center", color: "var(--c-cream)", fontSize: 19, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{text}</span>
+      <span style={{ ...PIX, position: "absolute", left: 0, right: 0, top: 5, textAlign: "center", color: "var(--c-cream)", fontSize: 15, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{text}</span>
     </div>
   );
 }
@@ -389,16 +391,22 @@ export function Stage({ children }: { children: ReactNode }) {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const upd = () => setS(Math.max(0.2, Math.min(el.clientWidth / SW, window.innerHeight / SH)));
+    /* La scène 1280x720 tient toujours entièrement dans la fenêtre visible (barres du navigateur, zoom, barre des tâches). */
+    const upd = () => {
+      const w = el.clientWidth || window.innerWidth;
+      const h = el.clientHeight || window.visualViewport?.height || window.innerHeight;
+      setS(Math.max(0.2, Math.min(w / SW, h / SH)));
+    };
     upd();
     const ro = new ResizeObserver(upd);
     ro.observe(el);
     window.addEventListener("resize", upd);
-    return () => { ro.disconnect(); window.removeEventListener("resize", upd); };
+    window.visualViewport?.addEventListener("resize", upd);
+    return () => { ro.disconnect(); window.removeEventListener("resize", upd); window.visualViewport?.removeEventListener("resize", upd); };
   }, []);
   return (
-    <div ref={ref} style={{ width: "100%", height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", background: "var(--c-ink)" }}>
-      <div style={{ width: SW * s, height: SH * s, position: "relative", overflow: "hidden" }}>
+    <div ref={ref} style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", background: "var(--c-ink)" }}>
+      <div style={{ width: SW * s, height: SH * s, position: "relative", overflow: "hidden", flexShrink: 0 }}>
         <div style={{ width: SW, height: SH, position: "absolute", left: 0, top: 0, transform: `scale(${s})`, transformOrigin: "0 0", overflow: "hidden" }}>{children}</div>
       </div>
     </div>
