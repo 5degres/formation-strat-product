@@ -15,6 +15,7 @@ import { ErreurJeu, envoyerReponse, rpc, stockage } from "../api";
 import type { EtatEquipe, LigneClassement, Presence, ResultatReponse } from "../types";
 import { IndicateurSync, LIBELLE_STATUT, nouvelId, tempsRestant, useMaintenant } from "../util";
 import { chatReply, routerMessage } from "./max";
+import { demanderMax, TexteMax } from "./maxDust";
 import "./theme.css";
 
 /* =========================================================
@@ -81,6 +82,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
   const [input, setInput] = useState("");
   const [attente, setAttente] = useState<Attente | null>(() => stockage.lire<Attente>(CLE_ATTENTE));
   const [envoi, setEnvoi] = useState(false);
+  const [maxEcrit, setMaxEcrit] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [resultat, setResultat] = useState<Resultat | null>(null);
   const [valoAnim, setValoAnim] = useState<ValoAnim | null>(null);
@@ -196,16 +198,51 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
     } finally { setEnvoi(false); }
   };
 
+  /* Discussion libre (non notée) : Max répond via l'agent Dust.
+     En cas de panne de l'agent, la réponse de secours locale est affichée et signalée. */
+  const discuterAvecMax = async (l: Lieu, texte: string) => {
+    setMaxEcrit(true); setErr(null);
+    const historique = (logs[l.id] ?? []).slice(-8).map((m) => `${m.from === "max" ? "Max" : e.entreprise} : ${m.text}`);
+    const suivant = prochain(l.id);
+    try {
+      const reponse = await demanderMax({
+        equipeId: e.equipe_id,
+        entreprise: e.entreprise,
+        message: texte,
+        contexte: {
+          mode: "discussion",
+          consigne: "Discussion libre NON notée : n'évalue pas ce message et n'annonce aucune variation de valorisation. La notation officielle est calculée par le serveur du jeu quand l'équipe envoie une vraie réponse à la question du lieu.",
+          lieu: { nom: l.nom, concept: l.concept, question: q(l), lieu_valide: valides.includes(l.id), tentatives: tentatives(l.id), max_tentatives: regles.max_tentatives },
+          startup: { entreprise: e.entreprise, produit, objectif: e.objectif, membres: e.membres },
+          partie: {
+            statut: s.statut, valorisation: e.valorisation, rang: e.rang, nb_equipes: etat.nb_equipes,
+            lieux_valides: valides.map((id) => LIEUX.find((x) => x.id === id)?.nom ?? id),
+            prochain_lieu_conseille: suivant?.nom ?? null,
+          },
+          historique_recent_du_lieu: historique,
+        },
+      });
+      ajouterLog(l.id, { from: "max", text: reponse });
+    } catch (x) {
+      console.warn("[Max] agent Dust indisponible, réponse de secours affichée", x);
+      ajouterLog(l.id, { from: "max", text: chatReply(texte, l) });
+      setErr("Agent Max indisponible : réponse de secours affichée.");
+    } finally {
+      setMaxEcrit(false);
+    }
+  };
+
   const envoyerMessage = () => {
-    if (!lieu || envoi || input.trim() === "" || s.statut === "FINISHED") return;
+    if (!lieu || envoi || maxEcrit || input.trim() === "" || s.statut === "FINISHED") return;
     const texte = input.trim();
     const peutEvaluer = !valides.includes(lieu.id) && !verrouille;
     const r = routerMessage(texte, lieu, peutEvaluer);
     setRoute(r);
     if (r === "discuter") {
       setResultat(null);
-      ajouterLog(lieu.id, { from: "duo", text: texte }, { from: "max", text: chatReply(texte, lieu) });
+      ajouterLog(lieu.id, { from: "duo", text: texte });
       setInput("");
+      void discuterAvecMax(lieu, texte);
       return;
     }
     const a = { id: nouvelId(), lieu: lieu.id, reponse: texte };
@@ -409,11 +446,11 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
                 <div key={i} style={{ display: "flex", justifyContent: m.from === "duo" ? "flex-end" : "flex-start" }}>
                   <div style={{ maxWidth: "82%", background: m.from === "duo" ? "var(--c-mint)" : "var(--c-white)", border: `2px solid ${m.from === "duo" ? "var(--c-teal)" : "var(--c-green)"}`, borderRadius: m.from === "duo" ? "12px 12px 2px 12px" : "12px 12px 12px 2px", padding: "8px 12px", boxShadow: "2px 2px 0 0 var(--veil-light)" }}>
                     <div style={{ ...PIX, fontSize: 14, fontWeight: 700, color: m.from === "duo" ? "var(--c-ink)" : "var(--c-green)" }}>{m.from === "duo" ? e.entreprise : "Max"}</div>
-                    <div style={{ ...RAL, fontSize: 15, lineHeight: 1.45, fontWeight: 500 }}>{m.text}</div>
+                    <div style={{ ...RAL, fontSize: 15, lineHeight: 1.45, fontWeight: 500, whiteSpace: "pre-wrap" }}>{m.from === "max" ? <TexteMax text={m.text} /> : m.text}</div>
                   </div>
                 </div>
               ))}
-              {envoi ? <div style={{ ...RAL, fontSize: 14, fontWeight: 700, color: "var(--c-green)" }}>Max réfléchit… (évaluation sur le serveur)</div> : null}
+              {envoi ? <div style={{ ...RAL, fontSize: 14, fontWeight: 700, color: "var(--c-green)" }}>Max réfléchit… (évaluation sur le serveur)</div> : maxEcrit ? <div style={{ ...RAL, fontSize: 14, fontWeight: 700, color: "var(--c-green)" }}>Max écrit…</div> : null}
             </div>
 
             {res ? (
@@ -449,7 +486,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
 
             <div style={{ borderTop: "3px solid var(--c-ink)", background: "var(--c-mint)", padding: "10px 14px", display: "flex", gap: 10, alignItems: "stretch" }}>
               <textarea className="sq-input" value={enAttente ? enAttente.reponse : input} onChange={(x) => setInput(x.target.value)} rows={2} aria-label="Écrivez à Max"
-                disabled={!!enAttente || envoi || finie}
+                disabled={!!enAttente || envoi || maxEcrit || finie}
                 onKeyDown={(x) => { if (x.key === "Enter" && !x.shiftKey) { x.preventDefault(); envoyerMessage(); } }}
                 placeholder={ok ? "Lieu validé : vous pouvez encore discuter avec Max (sans notation)." : "Écrivez à Max : votre réponse, une question, ou ce qui vous passe par la tête…"}
                 style={{ ...RAL, flex: 1, border: "2px solid var(--c-ink)", borderRadius: 5, padding: "8px 12px", fontSize: 16, fontWeight: 500, resize: "none", background: "var(--c-white)", color: "var(--c-ink)" }} />
@@ -460,7 +497,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
                     {!envoi ? <PxButton variant="cream" size={12} onClick={() => { stockage.effacer(CLE_ATTENTE); setInput(enAttente.reponse); setAttente(null); }}>Modifier</PxButton> : null}
                   </>
                 ) : (
-                  <PxButton onClick={envoyerMessage} disabled={!input.trim() || envoi || finie} size={18}><Send size={16} /> {envoi ? "Max réfléchit…" : "Envoyer"}</PxButton>
+                  <PxButton onClick={envoyerMessage} disabled={!input.trim() || envoi || maxEcrit || finie} size={18}><Send size={16} /> {envoi || maxEcrit ? "Max réfléchit…" : "Envoyer"}</PxButton>
                 )}
                 <span role="status" style={{ ...RAL, maxWidth: 190, fontSize: 11, lineHeight: 1.2, fontWeight: 600, color: err ? "var(--c-fawn-700)" : "var(--c-ink)" }}>
                   {err ?? (enAttente ? "Réponse en attente de confirmation du serveur." : s.statut === "PAUSED" ? "Partie en pause : discussion possible, notation suspendue." : route === "evaluer" ? "Max a évalué votre dernier message (calcul serveur)." : route === "discuter" ? "Discussion libre : ni note, ni impact sur la valorisation." : "Max décide seul : réponse à noter ou simple discussion.")}
