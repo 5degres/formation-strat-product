@@ -16,7 +16,7 @@ import type { EtatEquipe, LigneClassement, ResultatReponse } from "../types";
 import { IndicateurSync, LIBELLE_STATUT, nouvelId, tempsRestant, useMaintenant } from "../util";
 import { chatReply, routerMessage } from "./max";
 import { parlerAMax } from "./maxDust";
-import { Habitants } from "./habitants";
+import { Habitants, PersoEcoute, usePlanche } from "./habitants";
 import { MenuCarte, FenetresMenu } from "./menus";
 import type { Fenetre } from "./menus";
 import "./theme.css";
@@ -398,6 +398,10 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
           <div style={{ position: "absolute", left: 870, top: 250 }}>
             <Sprite url={MAX_CAST} cols={7} row={ROW.down} frames={TALK} fps={5} scale={3} label="Max, le mentor, explique le concept" />
           </div>
+          {/* Votre personnage, à côté de Max, tourné vers lui : il écoute */}
+          <div style={{ position: "absolute", left: 690, top: 256 }}>
+            <PersoEcoute equipeId={e.equipe_id} nom={e.entreprise} scale={3} sens={ROW.right} />
+          </div>
           <Bang left={946} top={236} size={40} />
           <TopLeftCard title={lieu.nom} subtitle={`Concept : ${lieu.concept}`} />
           <ValoGauge valo={e.valorisation} anim={null} />
@@ -420,8 +424,12 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
           <div style={{ ...FULL, background: "var(--veil)" }} />
           <div style={{ position: "absolute", left: 60, top: 560, width: 380, height: 30, borderRadius: "50%", background: "var(--veil)" }} />
           <div style={{ position: "absolute", left: 30, top: 150, width: 440, height: 430, overflow: "hidden" }}>
-            <div style={{ position: "absolute", left: (440 - 640) / 2, top: -110 }}>
-              <Sprite url={parle ? MAX_CAST : MAX_WALK} cols={parle ? 7 : 9} row={ROW.down} frames={parle ? TALK : IDLE} fps={4} scale={10} label="Portrait de Max, le mentor" />
+            {/* Duo : votre personnage écoute (à gauche, tourné vers Max), Max parle (à droite) */}
+            <div style={{ position: "absolute", left: -95, top: 59 }}>
+              <PersoEcoute equipeId={e.equipe_id} nom="Vous" scale={5.5} sens={ROW.right} />
+            </div>
+            <div style={{ position: "absolute", left: 125, top: 59 }}>
+              <Sprite url={parle ? MAX_CAST : MAX_WALK} cols={parle ? 7 : 9} row={ROW.down} frames={parle ? TALK : IDLE} fps={4} scale={5.5} label="Max, le mentor" />
             </div>
           </div>
           <div style={{ ...PIX, position: "absolute", left: 70, top: 596, width: 360, textAlign: "center", background: "var(--c-green)", color: "var(--c-cream)", border: "3px solid var(--c-ink)", borderRadius: 6, padding: "4px 0", fontSize: 18, fontWeight: 700, boxShadow: "3px 3px 0 0 var(--c-ink)" }}>
@@ -558,8 +566,8 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
           );
         })}
         {/* Personnages des équipes : devant le bâtiment où elles se trouvent, ou sur la place ; ils marchent quand une équipe change de lieu */}
-        <Habitants equipes={etat.equipes} place={PLACE} />
-        <MaxMarcheur marche={marche} onArrivee={arriveeMarche} />
+        <Habitants equipes={etat.equipes} place={PLACE} masquer={marche ? e.equipe_id : null} />
+        <MaxMarcheur marche={marche} onArrivee={arriveeMarche} compagnon={e.equipe_id} />
 
         <MenuCarte ouvert={fenetre} onOuvrir={setFenetre} />
         <ValoGauge key={valoAnim?.k ?? 0} valo={e.valorisation} anim={null} fleche={false} />
@@ -857,7 +865,12 @@ function cheminVers(id: string): Point[] | null {
   return brut.filter((p, i) => i === 0 || distance(p, brut[i - 1]) > 4);
 }
 
-function MaxMarcheur({ marche, onArrivee }: { marche: Marche | null; onArrivee: () => void }) {
+/* Décalage de votre personnage par rapport à Max : identique à sa place de repos sur la carte
+   (voir PLACE et le composant Habitants), pour qu'il parte de là où il attendait. */
+const COMPAGNON_DX = 44, COMPAGNON_DY = -6;
+
+function MaxMarcheur({ marche, onArrivee, compagnon }: { marche: Marche | null; onArrivee: () => void; compagnon: string }) {
+  const urlCompagnon = usePlanche(compagnon);
   const [etape, setEtape] = useState(1);
   const arriveeRef = useRef(onArrivee);
   arriveeRef.current = onArrivee;
@@ -890,6 +903,14 @@ function MaxMarcheur({ marche, onArrivee }: { marche: Marche | null; onArrivee: 
         <Sprite url={MAX_WALK} cols={9} row={sens} frames={WALK} fps={enMarche ? 10 : 5} scale={1} label="Max" />
       </motion.div>
       <NameTag name="Max" x={32} y={-6} />
+      {/* Pendant la marche, votre personnage accompagne Max (même rythme, même direction) */}
+      {marche && urlCompagnon ? (
+        <div style={{ position: "absolute", left: COMPAGNON_DX, top: COMPAGNON_DY }}>
+          <div aria-hidden="true" style={{ position: "absolute", left: 21, top: 55, width: 22, height: 7, borderRadius: "50%", background: "rgba(0,0,0,.25)" }} />
+          <Sprite url={urlCompagnon} cols={9} row={sens} frames={enMarche ? WALK : IDLE} fps={10} scale={1} label="Votre personnage" />
+          <div style={{ ...PIX, position: "absolute", left: 32, top: -8, transform: "translateX(-50%)", background: "var(--c-fawn-600)", color: "var(--c-cream)", border: "2px solid var(--c-ink)", borderRadius: 4, padding: "0 5px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", boxShadow: "2px 2px 0 0 var(--c-ink)" }}>Vous</div>
+        </div>
+      ) : null}
     </motion.div>
   );
 }

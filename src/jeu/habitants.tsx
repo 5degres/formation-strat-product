@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "motion/react";
 import type { Presence } from "../types";
 import { LAYOUT } from "./assets";
 import { CALQUES } from "./calques";
@@ -188,7 +189,7 @@ function porte(lieu: string | null, place: Pt): { x: number; y: number; versLaDr
   return { x: (b.x + b.w / 2) * T, y: routeDe(b.y + b.h + 0.6) * T, versLaDroite: false };
 }
 
-const ECART = 26; // px entre deux personnages
+const ECART = 34; // px entre deux personnages (sprites à la taille de Max)
 const MAX_PAR_LIEU = 6;
 function decalage(rang: number, versLaDroite: boolean) {
   if (versLaDroite) return rang * ECART;
@@ -223,7 +224,8 @@ type Mobile = { x: number; y: number; chemin: Pt[]; dir: number; cle: string };
 const VITESSE = 210; // px par seconde
 
 /* ---------- Composant : tous les personnages de la carte ---------- */
-export function Habitants({ equipes, place }: { equipes: Presence[]; place: Pt }) {
+/** `masquer` : identifiant d'une équipe à ne pas dessiner (votre personnage, quand il marche avec Max). */
+export function Habitants({ equipes, place, masquer }: { equipes: Presence[]; place: Pt; masquer?: string | null }) {
   // Emplacements cibles : chaque lieu aligne ses personnages devant la porte (votre équipe d'abord)
   const cibles = useMemo(() => {
     const parLieu = new Map<string, Presence[]>();
@@ -283,6 +285,7 @@ export function Habitants({ equipes, place }: { equipes: Presence[]; place: Pt }
   useEffect(() => () => { if (anim.current !== null) cancelAnimationFrame(anim.current); }, []);
 
   const liste = equipes
+    .filter((e) => e.equipe_id !== masquer)
     .filter((e) => cibles.visibles.has(e.equipe_id) || (mobiles.current.get(e.equipe_id)?.chemin.length ?? 0) > 0)
     .map((e) => ({ e, p: mobiles.current.get(e.equipe_id) }))
     .filter((x): x is { e: Presence; p: Mobile } => !!x.p)
@@ -300,7 +303,7 @@ export function Habitants({ equipes, place }: { equipes: Presence[]; place: Pt }
   );
 }
 
-const ECHELLE = 0.75; // 64 px LPC -> 48 px à l'écran
+const ECHELLE = 1; // 64 px LPC à l'écran : même taille que Max sur la carte
 
 function Habitant({ equipe, x, y, dir, marche }: { equipe: Presence; x: number; y: number; dir: number; marche: boolean }) {
   const url = usePlanche(equipe.equipe_id);
@@ -320,6 +323,26 @@ function Habitant({ equipe, x, y, dir, marche }: { equipe: Presence; x: number; 
           {equipe.entreprise}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- Votre personnage en position d'écoute (intérieur des lieux) ----------
+   Tourné vers Max, immobile, avec un léger hochement de tête régulier. */
+export function PersoEcoute({ equipeId, nom, scale, sens = ROW.right, etiquette = true }: { equipeId: string; nom: string; scale: number; sens?: number; etiquette?: boolean }) {
+  const url = usePlanche(equipeId);
+  const s = 64 * scale;
+  return (
+    <div style={{ position: "relative", width: s, height: s }}>
+      <div aria-hidden="true" style={{ position: "absolute", left: s / 2 - 11 * scale, top: s * 0.9, width: 22 * scale, height: 6 * scale, borderRadius: "50%", background: "rgba(0,0,0,.22)" }} />
+      <motion.div animate={{ y: [0, scale, 0, scale, 0, 0] }} transition={{ duration: 3.2, repeat: Infinity, times: [0, 0.06, 0.12, 0.18, 0.24, 1], ease: "easeInOut" }}>
+        {url ? <Sprite url={url} cols={9} row={sens} frames={IDLE} fps={1} scale={scale} label={`${nom} écoute Max`} /> : null}
+      </motion.div>
+      {etiquette ? (
+        <div style={{ ...PIX, position: "absolute", left: s / 2, top: s * 0.12, transform: "translateX(-50%)", background: "var(--c-fawn-600)", color: "var(--c-cream)", border: "2px solid var(--c-ink)", borderRadius: 4, padding: "0 6px", fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", boxShadow: "2px 2px 0 0 var(--c-ink)" }}>
+          {nom}
+        </div>
+      ) : null}
     </div>
   );
 }
