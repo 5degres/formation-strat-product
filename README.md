@@ -23,7 +23,9 @@ Implémentation du **PRD Multijoueur v0.1**, première livraison : prototype tec
 
 **Règle des réponses en cours (PRD §6.4)** : une réponse n'est comptée que si le serveur la reçoit avant le verrouillage (fin de partie, pause ou minuteur). Une réponse refusée ne consomme pas de tentative.
 
-**Pas encore intégré** (prochaine itération, une fois le prototype validé en conditions réelles) : la carte pixel art animée de la v3, les coups de théâtre, la révision post-événement, la salle des investisseurs dans l'application (le pitch se fait en salle), la vidéo d'intro et le guide Max.
+**Interface pixel art (v3)** : l'écran des équipes reprend l'interface de la Frame Start-up Quest v3 (dossier `src/jeu/`) : hall avec arrivée animée de Max et dialogues d'introduction, carte pixel art du village (quartiers, panneaux, étoiles, lieu conseillé, pions de toutes les équipes), intérieurs des bâtiments avec tableau du concept, portrait de Max et échange, verdict animé (étoiles, pluie de pièces, jauge de valorisation), HUD pixel (valorisation, minuteur serveur, rang, classement en direct) et podium dans la Salle des investisseurs. Toutes les valeurs affichées viennent du serveur ; seule la discussion libre avec Max (non notée) reste locale. L'ancienne interface « formulaire » reste disponible en ajoutant `?classique=1` à l'adresse.
+
+**Pas encore intégré** : les coups de théâtre et la révision post-événement, la synthèse téléchargeable de fin de partie. Le pitch se fait en salle.
 
 ## Mise en place (environ 20 minutes)
 
