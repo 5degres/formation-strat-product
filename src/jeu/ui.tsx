@@ -23,6 +23,7 @@ export const CSS =
   ".sq-zone:hover .sq-label,.sq-zone:focus-visible .sq-label{opacity:1;visibility:visible}" +
   
   ".sq-scroll::-webkit-scrollbar{width:10px}.sq-scroll::-webkit-scrollbar-thumb{background:var(--c-green);border-radius:4px;border:2px solid var(--c-cream)}" +
+  ".sq-perso .sq-perso-nom{opacity:0;transition:opacity .15s}.sq-perso:hover{z-index:35!important}.sq-perso:hover .sq-perso-nom{opacity:1}" +
   ".sq-input::placeholder{color:var(--c-muted);opacity:.8}" +
   ".sq-input:focus{outline:3px solid var(--c-fawn-600);outline-offset:1px}" +
   "@keyframes sqdots{0%,20%{opacity:.2}50%{opacity:1}100%{opacity:.2}}.sq-dot{animation:sqdots 1.2s infinite}.sq-dot:nth-child(2){animation-delay:.2s}.sq-dot:nth-child(3){animation-delay:.4s}";

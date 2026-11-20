@@ -12,10 +12,11 @@ import {
 } from "./ui";
 import type { ValoAnim } from "./ui";
 import { ErreurJeu, envoyerReponse, rpc, stockage } from "../api";
-import type { EtatEquipe, LigneClassement, Presence, ResultatReponse } from "../types";
+import type { EtatEquipe, LigneClassement, ResultatReponse } from "../types";
 import { IndicateurSync, LIBELLE_STATUT, nouvelId, tempsRestant, useMaintenant } from "../util";
 import { chatReply, routerMessage } from "./max";
 import { parlerAMax } from "./maxDust";
+import { Habitants } from "./habitants";
 import "./theme.css";
 
 /* =========================================================
@@ -63,8 +64,6 @@ const SOURCE_LINKS: Record<string, { label: string; url: string }[]> = {
   banque: [{ label: "Strategyzer · Business Model Canvas", url: "https://www.strategyzer.com/canvas/business-model-canvas" }],
   place_lancement: [{ label: "ProductPlan · Go-to-market", url: "https://www.productplan.com/glossary/go-to-market-strategy/" }],
 };
-const PALETTE = ["#FA8A54", "#4BB4B6", "#F8D786", "#B7DEDE", "#EF9278", "#7BE495", "#C0CBDC", "#F7B17D", "#DB7B4B", "#FCDAC2", "#B0885A", "#FFFFFF"];
-const initiales = (n: string) => n.split(/\s+/).filter(Boolean).map((m) => m[0]).join("").slice(0, 2).toUpperCase();
 const PLACE = { x: 740, y: 440 }; // place du village, à côté de Max
 const signe = (n: number) => (n >= 0 ? "+" : "−") + fmt(Math.abs(n));
 
@@ -132,7 +131,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
     "Bienvenue au Village by 5D, l'incubateur des start-ups ! Je suis Max, votre mentor en stratégie produit.",
     `${e.entreprise}, votre mission : faire de ${produit} une start-up capable de convaincre les investisseurs.`,
     "Le village compte 4 quartiers : les Rêveurs, les Bricoleurs, les Compteurs et les Ambitieux. Chaque lieu cache un concept clé, et vos réponses doivent se tenir de bout en bout.",
-    `Vous n'êtes pas seuls : ${Math.max(0, etat.nb_equipes - 1)} autre(s) équipe(s) explorent le village en même temps. Vous verrez leurs pions se déplacer et le classement évoluer en direct.`,
+    `Vous n'êtes pas seuls : ${Math.max(0, etat.nb_equipes - 1)} autre(s) équipe(s) explorent le village en même temps. Vous verrez leurs personnages se déplacer et le classement évoluer en direct.`,
     "Attention, une réponse floue fait baisser votre valeur, et le chrono est le même pour tout le monde. Prêts ? Direction le village !",
   ], [e.entreprise, produit, etat.nb_equipes]);
 
@@ -493,19 +492,6 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
     }
   } else if (enJeu) {
     /* ===== Carte du village en pixel art ===== */
-    const pionsPar = (lieuCourant: string | null): Presence[] => etat.equipes.filter((x) => (x.lieu_courant ?? null) === lieuCourant);
-    const couleur = (id: string) => PALETTE[Math.max(0, etat.equipes.findIndex((x) => x.equipe_id === id)) % PALETTE.length];
-    const pions = (cle: string, liste: Presence[], cx: number, cy: number) => liste.length === 0 ? null : (
-      <div key={`pions-${cle}`} aria-hidden="true" style={{ position: "absolute", left: cx, top: cy, transform: "translate(-50%, -50%)", display: "flex", gap: 3, zIndex: 25, pointerEvents: "none" }}>
-        {liste.slice(0, 6).map((p) => (
-          <motion.span key={p.equipe_id} layoutId={`pion-${p.equipe_id}`} transition={{ duration: 0.8 }} title={p.entreprise}
-            style={{ ...NUM, width: p.moi ? 30 : 24, height: p.moi ? 30 : 24, borderRadius: 999, background: couleur(p.equipe_id), color: "var(--c-ink)", border: `3px solid ${p.moi ? "var(--c-fawn-600)" : "var(--c-ink)"}`, outline: p.moi ? "2px solid var(--c-ink)" : "none", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, boxShadow: "2px 2px 0 0 var(--c-ink)", opacity: p.en_ligne ? 1 : 0.45, boxSizing: "border-box" }}>
-            {initiales(p.entreprise)}
-          </motion.span>
-        ))}
-        {liste.length > 6 ? <span style={{ ...NUM, fontSize: 9, color: "var(--c-cream)", textShadow: "1px 1px 0 var(--c-ink)", alignSelf: "center" }}>+{liste.length - 6}</span> : null}
-      </div>
-    );
     const zone = (id: string, nom: string, concept: string, onClick: () => void, opts: { done?: boolean; reco?: boolean; locked?: boolean; desc?: string }) => {
       const b = LAYOUT[id];
       if (!b) return null;
@@ -564,12 +550,8 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
             </div>
           );
         })}
-        {/* Pions des équipes : sous le bâtiment où elles se trouvent, ou sur la place */}
-        {LIEUX.map((l) => {
-          const b = LAYOUT[l.id];
-          return b ? pions(l.id, pionsPar(l.id), (b.x + b.w / 2) * T, (b.y + b.h) * T + 16) : null;
-        })}
-        {pions("place", pionsPar(null), PLACE.x, PLACE.y)}
+        {/* Personnages des équipes : devant le bâtiment où elles se trouvent, ou sur la place ; ils marchent quand une équipe change de lieu */}
+        <Habitants equipes={etat.equipes} place={PLACE} />
         <MaxMarcheur marche={marche} onArrivee={arriveeMarche} />
 
         {startupCard}
