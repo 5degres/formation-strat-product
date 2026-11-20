@@ -7,7 +7,7 @@ import type { Lieu } from "../../supabase/functions/_shared/jeu/data.ts";
 import { QUARTIERS, ACCROCHES, CRITERES, quartierDe } from "../../supabase/functions/_shared/jeu/strategie.ts";
 import { VILLAGE, INTERIOR, HALL, COUNTER, JURY, MAX_WALK, MAX_CAST, LAYOUT } from "./assets";
 import {
-  SW, T, CSS, PIX, RAL, PANEL, FULL, NUM, fmt, fmtTime, WALK, IDLE, TALK, ROW,
+  SW, SH, T, CSS, PIX, RAL, PANEL, FULL, NUM, fmt, fmtTime, WALK, IDLE, TALK, ROW,
   Sprite, Trophy, PxButton, DialogBox, NameTag, Bang, ValoGauge, Hearts, TopLeftCard, CoinRain, Ribbon, Stage,
 } from "./ui";
 import type { ValoAnim } from "./ui";
@@ -95,6 +95,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
   const logRef = useRef<HTMLDivElement>(null);
   const saisieRef = useRef<HTMLTextAreaElement>(null);
   const [secours, setSecours] = useState(false);
+  const [marche, setMarche] = useState<Marche | null>(null);
   const maintenant = useMaintenant(500);
 
   useEffect(() => { stockage.ecrire(cleLog, logs); }, [cleLog, logs]);
@@ -142,6 +143,20 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
     setValoAnim(null); setResultat(null); setErr(null); setDialogCarte(true);
     setLieuId(null); setEcran("carte");
     if (!verrouille) rpc("deplacer_equipe", { p_token: token, p_lieu: null }).then(rafraichir, () => undefined);
+  };
+
+  /* Clic sur un bâtiment : Max marche jusqu'à l'entrée, puis le lieu s'ouvre. */
+  const marcherVers = (l: Lieu) => {
+    if (s.statut === "FINISHED" || marche) return;
+    const chemin = cheminVers(l.id);
+    if (!chemin) { ouvrirLieu(l); return; }
+    setDialogCarte(false);
+    setMarche({ lieuId: l.id, points: chemin });
+  };
+  const arriveeMarche = () => {
+    const cible = marche ? LIEUX.find((x) => x.id === marche.lieuId) : undefined;
+    setMarche(null);
+    if (cible) ouvrirLieu(cible);
   };
 
   const ouvrirLieu = (l: Lieu) => {
@@ -499,10 +514,10 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
       const ici = etat.equipes.filter((x) => x.lieu_courant === id && !x.moi).map((x) => x.entreprise);
       const labelLeft = Math.min(Math.max((b.x + b.w / 2) * T - 125, 8), SW - 258) - (b.x * T - 4);
       return (
-        <button key={id} type="button" className="sq-zone" onClick={onClick}
+        <button key={id} type="button" className="sq-zone" onClick={() => { if (!marche) onClick(); }}
           aria-label={`${nom}, ${concept}${opts.done ? ", validé" : ""}${opts.locked ? ", verrouillée" : ""}${opts.reco ? ", lieu conseillé" : ""}`}
-          aria-disabled={opts.locked}
-          style={{ position: "absolute", left: b.x * T - 4, top: b.y * T - 4, width: b.w * T + 8, height: b.h * T + 8, background: "transparent", border: "none", borderRadius: 8, cursor: opts.locked ? "not-allowed" : "pointer", padding: 0 }}>
+          aria-disabled={opts.locked || marche !== null}
+          style={{ position: "absolute", left: b.x * T - 4, top: b.y * T - 4, width: b.w * T + 8, height: b.h * T + 8, background: "transparent", border: "none", borderRadius: 8, cursor: opts.locked ? "not-allowed" : marche ? "wait" : "pointer", padding: 0 }}>
           <span className="sq-label" style={{ ...PIX, position: "absolute", left: labelLeft, top: below ? b.h * T + 12 : undefined, bottom: below ? undefined : b.h * T + 12, background: "var(--c-cream)", color: "var(--c-ink)", border: "3px solid var(--c-ink)", borderLeft: `8px solid ${quartierDe(id)?.couleur ?? "var(--px-gold)"}`, borderRadius: 5, padding: "6px 10px", fontSize: 13, fontWeight: 700, width: 250, boxSizing: "border-box", whiteSpace: "normal", boxShadow: "3px 3px 0 0 var(--c-ink)", textAlign: "left", lineHeight: 1.3, zIndex: 40 }}>
             {nom}
             <span style={{ ...RAL, display: "block", fontSize: 12, fontWeight: 800, color: "var(--c-green)", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 2 }}>{concept}</span>
@@ -538,7 +553,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
           <div style={{ ...PIX, background: "#8a5a32", color: "var(--c-cream)", border: "3px solid var(--c-ink)", borderRadius: 4, padding: "3px 12px", fontSize: 15, fontWeight: 700, whiteSpace: "nowrap", boxShadow: "inset 0 -3px 0 #6b4425, 3px 3px 0 0 var(--c-ink)", textShadow: "2px 2px 0 var(--c-ink)" }}>Village by 5D</div>
           <div style={{ display: "flex", gap: 46 }}><div style={{ width: 6, height: 14, background: "#6b4425", border: "2px solid var(--c-ink)", borderTop: "none" }} /><div style={{ width: 6, height: 14, background: "#6b4425", border: "2px solid var(--c-ink)", borderTop: "none" }} /></div>
         </div>
-        {LIEUX.map((l) => zone(l.id, l.nom, l.concept, () => ouvrirLieu(l), { done: valides.includes(l.id), reco: reco?.id === l.id }))}
+        {LIEUX.map((l) => zone(l.id, l.nom, l.concept, () => marcherVers(l), { done: valides.includes(l.id), reco: reco?.id === l.id }))}
         {zone(FINAL.id, FINAL.nom, FINAL.concept, () => undefined, { locked: true, desc: "Le pitch se présente en salle, devant le jury, une fois la partie terminée." })}
         {QUARTIERS.map((qz) => {
           const fait = qz.lieux.filter((x) => valides.includes(x)).length;
@@ -555,12 +570,7 @@ export default function JeuPixel({ etat, token, rafraichir, decalage, derniereSy
           return b ? pions(l.id, pionsPar(l.id), (b.x + b.w / 2) * T, (b.y + b.h) * T + 16) : null;
         })}
         {pions("place", pionsPar(null), PLACE.x, PLACE.y)}
-        <div style={{ position: "absolute", left: 664, top: 386 }}>
-          <motion.div animate={{ y: [0, -2, 0] }} transition={{ duration: 1.2, repeat: Infinity, delay: 0.8 }}>
-            <Sprite url={MAX_WALK} cols={9} row={ROW.down} frames={WALK} fps={5} scale={1} label="Max" />
-          </motion.div>
-          <NameTag name="Max" x={32} y={-6} />
-        </div>
+        <MaxMarcheur marche={marche} onArrivee={arriveeMarche} />
 
         {startupCard}
         <ValoGauge key={valoAnim?.k ?? 0} valo={e.valorisation} anim={null} />
@@ -829,6 +839,85 @@ function Bilan({ res, vu, lieu, regles, maxValo, valorisation, nextReco, verroui
           )}
         </div>
       </div>
+    </motion.div>
+  );
+}
+
+
+/* =========================================================
+   Déplacement de Max sur la carte du village
+   ========================================================= */
+
+type Point = { x: number; y: number };
+type Marche = { lieuId: string; points: Point[] };
+
+/* Position de Max au repos sur la place (coin haut gauche du sprite 64x64). */
+const MAX_DEPART: Point = { x: 664, y: 386 };
+/* Allée principale du village, empruntée avant de bifurquer vers un bâtiment. */
+const ALLEE_Y = 402;
+const VITESSE = 260; // px par seconde
+
+const borne = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+const distance = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y);
+const direction = (a: Point, b: Point) => {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? ROW.right : ROW.left;
+  return dy >= 0 ? ROW.down : ROW.up;
+};
+
+/* Point d'arrivée devant l'entrée du bâtiment, côté place. */
+function entree(id: string): Point | null {
+  const b = LAYOUT[id];
+  if (!b) return null;
+  const cx = borne((b.x + b.w / 2) * T - 32, 24, SW - 88);
+  const cy = borne((b.y + b.h / 2) * T - 32, 74, SH - 90);
+  if (b.y < 10) return { x: cx, y: (b.y + b.h + 0.8) * T - 32 };
+  if (b.y > 17) return { x: cx, y: (b.y - 0.8) * T - 32 };
+  if (b.x > 34) return { x: (b.x - 0.9) * T - 32, y: cy };
+  return { x: (b.x + b.w + 0.9) * T - 32, y: cy };
+}
+
+/* Chemin en L : rejoindre l'allée, la suivre, puis monter ou descendre jusqu'à l'entrée. */
+function cheminVers(id: string): Point[] | null {
+  const fin = entree(id);
+  if (!fin) return null;
+  const brut = [MAX_DEPART, { x: MAX_DEPART.x, y: ALLEE_Y }, { x: fin.x, y: ALLEE_Y }, fin];
+  return brut.filter((p, i) => i === 0 || distance(p, brut[i - 1]) > 4);
+}
+
+function MaxMarcheur({ marche, onArrivee }: { marche: Marche | null; onArrivee: () => void }) {
+  const [etape, setEtape] = useState(1);
+  const arriveeRef = useRef(onArrivee);
+  arriveeRef.current = onArrivee;
+
+  useEffect(() => { setEtape(1); }, [marche]);
+
+  const points = marche?.points ?? [MAX_DEPART];
+  const enMarche = marche !== null && etape < points.length;
+  const cible = enMarche ? points[etape] : points[Math.min(etape, points.length) - 1] ?? MAX_DEPART;
+  const depuis = enMarche ? points[etape - 1] : cible;
+  const sens = enMarche ? direction(depuis, cible) : ROW.down;
+  const duree = enMarche ? Math.max(0.15, distance(depuis, cible) / VITESSE) : 0;
+
+  const finSegment = () => {
+    if (!marche) return;
+    if (etape + 1 < points.length) { setEtape(etape + 1); return; }
+    setEtape(points.length);
+    window.setTimeout(() => arriveeRef.current(), 150);
+  };
+
+  return (
+    <motion.div
+      initial={false}
+      animate={{ x: cible.x, y: cible.y }}
+      transition={enMarche ? { duration: duree, ease: "linear" } : { duration: 0 }}
+      onAnimationComplete={enMarche ? finSegment : undefined}
+      style={{ position: "absolute", left: 0, top: 0, zIndex: 25, pointerEvents: "none" }}
+    >
+      <motion.div animate={enMarche ? { y: 0 } : { y: [0, -2, 0] }} transition={enMarche ? { duration: 0 } : { duration: 1.2, repeat: Infinity, delay: 0.8 }}>
+        <Sprite url={MAX_WALK} cols={9} row={sens} frames={WALK} fps={enMarche ? 10 : 5} scale={1} label="Max" />
+      </motion.div>
+      <NameTag name="Max" x={32} y={-6} />
     </motion.div>
   );
 }
