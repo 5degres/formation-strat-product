@@ -23,7 +23,7 @@ declare const process: { env: Record<string, string | undefined> };
 const env = (k: string) => (process.env[k] || "").trim();
 const DUST_URL = () => (env("DUST_API_URL") || env("DUST_BASE_URL") || "https://eu.dust.tt").replace(/\/+$/, "");
 const SB_URL = () => (env("SUPABASE_URL") || env("VITE_SUPABASE_URL")).replace(/\/+$/, "");
-const SB_KEY = () => env("SUPABASE_SERVICE_ROLE_KEY");
+const SB_KEY = () => env("SUPABASE_SERVICE_ROLE_KEY") || env("SUPABASE_SECRET_KEY");
 const DELAI_MS = 52_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -36,7 +36,10 @@ class ErreurJeu extends Error { constructor(public code: string, public statut =
 async function rpc(fn: string, args: Record<string, unknown>): Promise<any> {
   const r = await fetch(`${SB_URL()}/rest/v1/rpc/${fn}`, {
     method: "POST",
-    headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`, "Content-Type": "application/json" },
+    // Nouvelle clé « sb_secret_… » : uniquement dans l'en-tête apikey. Ancienne clé service_role (eyJ…) : apikey + Bearer.
+    headers: SB_KEY().startsWith("sb_")
+      ? { apikey: SB_KEY(), "Content-Type": "application/json" }
+      : { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`, "Content-Type": "application/json" },
     body: JSON.stringify(args),
   });
   const texte = await r.text();
