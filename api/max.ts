@@ -23,7 +23,10 @@ declare const process: { env: Record<string, string | undefined> };
 const env = (k: string) => (process.env[k] || "").trim();
 const DUST_URL = () => (env("DUST_API_URL") || env("DUST_BASE_URL") || "https://eu.dust.tt").replace(/\/+$/, "");
 const SB_URL = () => (env("SUPABASE_URL") || env("VITE_SUPABASE_URL")).replace(/\/+$/, "");
-const SB_KEY = () => env("SUPABASE_SERVICE_ROLE_KEY") || env("SUPABASE_SECRET_KEY");
+const SB_SECRET = () => env("SUPABASE_SERVICE_ROLE_KEY") || env("SUPABASE_SECRET_KEY");
+const SB_ANON = () => env("VITE_SUPABASE_ANON_KEY") || env("SUPABASE_ANON_KEY");
+/* Sans clé secrète : « mode discussion seulement ». Max discute en direct, la notation passe par le moteur de secours. */
+const SB_KEY = () => SB_SECRET() || SB_ANON();
 const DELAI_MS = 52_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -156,8 +159,13 @@ const verdictDe = (score: number) => (score >= 75 ? "excellente" : score >= 50 ?
 export default async function handler(req: any, res: any) {
   const dustOk = Boolean(env("DUST_API_KEY") && env("DUST_WORKSPACE_ID") && env("DUST_AGENT_ID"));
   const sbOk = Boolean(SB_URL() && SB_KEY());
+  const complet = Boolean(SB_URL() && SB_SECRET());
   if (req.method === "GET") {
-    return res.status(200).json({ route: "ok", dust_configure: dustOk, supabase_configure: sbOk, dust_url: DUST_URL(), agent: env("DUST_AGENT_ID") || null });
+    return res.status(200).json({
+      route: "ok", dust_configure: dustOk, supabase_configure: complet, supabase_lecture: sbOk,
+      mode: dustOk && complet ? "complet : Max discute et note" : dustOk && sbOk ? "partiel : Max discute, notation automatique de secours" : "secours : Max non branché",
+      dust_url: DUST_URL(), agent: env("DUST_AGENT_ID") || null,
+    });
   }
   if (req.method !== "POST") return res.status(405).json({ erreur: "METHODE_INTERDITE" });
   if (!dustOk || !sbOk) return res.status(503).json({ erreur: "MAX_NON_CONFIGURE", dust_configure: dustOk, supabase_configure: sbOk });
@@ -169,8 +177,11 @@ export default async function handler(req: any, res: any) {
 
   try {
     // 1. Vérifier l'équipe (et récupérer son contexte) avant de dépenser des crédits Dust.
-    const [ctx, etat] = await Promise.all([rpc("contexte_equipe", { p_token: b.token }), rpc("etat_equipe", { p_token: b.token })]);
+    const etat = await rpc("etat_equipe", { p_token: b.token });
     const equipe = etat?.equipe;
+    const ctx = complet
+      ? await rpc("contexte_equipe", { p_token: b.token })
+      : equipe && { produit: equipe.produit, objectif: equipe.objectif, reponses: {}, tentatives: equipe.tentatives ?? {}, lieux_valides: equipe.lieux_valides ?? [] };
     const session = etat?.session;
     if (!ctx || !equipe) throw new ErreurJeu("EQUIPE_INCONNUE", 401);
     const regles = session?.regles ?? { max_tentatives: 3 };
@@ -188,6 +199,9 @@ export default async function handler(req: any, res: any) {
     if (!peutEvaluer || maxEtat?.mode !== "evaluation" || typeof maxEtat?.score !== "number") {
       return res.status(200).json({ mode: "discussion", texte: texteAffiche, conversationId: cId });
     }
+
+    // 4a. Sans clé secrète, on ne peut pas enregistrer la note de Max : le jeu note avec le moteur de secours.
+    if (!complet) return res.status(200).json({ mode: "a_noter", conversationId: cId });
 
     // 4. Évaluation décidée par Max : on borne le score et on enregistre.
     let score = Math.max(0, Math.min(100, Math.round(maxEtat.score)));

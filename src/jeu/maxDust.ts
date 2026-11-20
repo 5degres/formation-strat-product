@@ -5,7 +5,7 @@
 import { ErreurJeu, stockage } from "../api";
 import type { ResultatReponse } from "../types";
 
-export type ReponseMax = { mode: "discussion" | "evaluation"; texte: string; resultat?: ResultatReponse };
+export type ReponseMax = { mode: "discussion" | "evaluation" | "a_noter"; texte: string; resultat?: ResultatReponse };
 
 export async function parlerAMax(p: { token: string; equipeId: string; clientActionId: string; lieu: string; message: string }): Promise<ReponseMax | null> {
   const cle = "sq_dust_conv_" + p.equipeId;
@@ -33,6 +33,7 @@ export async function parlerAMax(p: { token: string; equipeId: string; clientAct
   }
   if (!r.ok) throw new ErreurJeu(j?.erreur ?? "ERREUR_SERVEUR");
   if (j.conversationId) stockage.ecrire(cle, j.conversationId);
+  if (j.mode === "a_noter") return { mode: "a_noter", texte: "" }; // Max a reconnu une réponse : notation par le moteur de secours
   if (!j.texte) return null;
   return { mode: j.mode === "evaluation" && j.resultat ? "evaluation" : "discussion", texte: j.texte, resultat: j.resultat };
 }
