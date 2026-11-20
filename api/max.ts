@@ -15,6 +15,7 @@
      VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (jamais préfixée par VITE_)
 
    Diagnostic : ouvrir https://<site>/api/max dans le navigateur.
+   Test réel de l'agent : https://<site>/api/max?test=1 (envoie un message de test à Max).
    ========================================================================= */
 import { LIEUX } from "./_referentiel.js";
 
@@ -27,7 +28,7 @@ const SB_SECRET = () => env("SUPABASE_SERVICE_ROLE_KEY") || env("SUPABASE_SECRET
 const SB_ANON = () => env("VITE_SUPABASE_ANON_KEY") || env("SUPABASE_ANON_KEY");
 /* Sans clé secrète : « mode discussion seulement ». Max discute en direct, la notation passe par le moteur de secours. */
 const SB_KEY = () => SB_SECRET() || SB_ANON();
-const DELAI_MS = 52_000;
+const DELAI_MS = 40_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Critere = { label: string; poids: number; manque: string };
@@ -59,6 +60,37 @@ function dustHeaders() {
 }
 const dustBase = () => `${DUST_URL()}/api/v1/w/${env("DUST_WORKSPACE_ID")}/assistant/conversations`;
 
+class ErreurDust extends Error { constructor(public etape: string, public statut: number, public corps: string) { super(`${etape} ${statut} : ${corps.slice(0, 300)}`); } }
+
+async function appelDust(etape: string, url: string, init?: RequestInit): Promise<any> {
+  const r = await fetch(url, { ...init, headers: dustHeaders() });
+  const texte = await r.text();
+  if (!r.ok) throw new ErreurDust(etape, r.status, texte);
+  try { return texte ? JSON.parse(texte) : {}; } catch { throw new ErreurDust(etape, r.status, "Réponse non JSON : " + texte.slice(0, 200)); }
+}
+
+/* Dernier message de l'agent répondant au message utilisateur userMsgId (ou, à défaut, le dernier message d'agent). */
+function messageAgent(conversation: any, userMsgId: string | null): any {
+  const items: any[] = conversation?.content ?? [];
+  const messages = items.map((v) => (Array.isArray(v) ? v[v.length - 1] : v)).filter(Boolean);
+  const agents = messages.filter((m) => m?.type === "agent_message");
+  if (userMsgId) {
+    const lie = agents.filter((m) => m.parentMessageId === userMsgId);
+    return lie[lie.length - 1] ?? null;
+  }
+  return agents[agents.length - 1] ?? null;
+}
+
+const TERMINE = new Set(["succeeded", "completed"]);
+const ECHEC = new Set(["failed", "cancelled", "errored"]);
+
+function texteAgent(msg: any): string | null {
+  if (!msg) return null;
+  if (TERMINE.has(msg.status)) return String(msg.content ?? "");
+  if (ECHEC.has(msg.status)) throw new Error(`Agent en échec : ${JSON.stringify(msg.error ?? msg.status).slice(0, 300)}`);
+  return null;
+}
+
 async function envoyerDust(contenu: string, conversationId: string | null, auteur: string): Promise<{ cId: string; brut: string }> {
   const message = {
     content: contenu,
@@ -66,38 +98,67 @@ async function envoyerDust(contenu: string, conversationId: string | null, auteu
     context: { username: "startup-quest", fullName: auteur.slice(0, 80) || "Start-up Quest", timezone: "Europe/Paris" },
   };
   let cId = conversationId;
-  if (cId) {
-    const r = await fetch(`${dustBase()}/${cId}/messages`, { method: "POST", headers: dustHeaders(), body: JSON.stringify(message) });
-    if (!r.ok) { console.warn("[api/max] conversation non réutilisable", r.status, await r.text()); cId = null; }
-  }
-  if (!cId) {
-    const r = await fetch(dustBase(), {
-      method: "POST", headers: dustHeaders(),
-      body: JSON.stringify({ title: `Start-up Quest · ${auteur.slice(0, 40)}`, visibility: "unlisted", blocking: false, message }),
-    });
-    if (!r.ok) throw new Error(`Création conversation ${r.status} : ${(await r.text()).slice(0, 300)}`);
-    cId = (await r.json())?.conversation?.sId;
-    if (!cId) throw new Error("Identifiant de conversation absent");
-  }
-  return { cId, brut: await attendreMax(cId) };
-}
+  let userMsgId: string | null = null;
 
-/* Attend la fin de la réponse de Max (lecture toutes les secondes). */
-async function attendreMax(cId: string): Promise<string> {
-  const fin = Date.now() + DELAI_MS;
-  while (Date.now() < fin) {
-    await new Promise((r) => setTimeout(r, 1000));
-    const r = await fetch(`${dustBase()}/${cId}`, { headers: dustHeaders() });
-    if (!r.ok) throw new Error(`Lecture conversation ${r.status}`);
-    const items = (await r.json())?.conversation?.content ?? [];
-    const dernier = items[items.length - 1];
-    const msg = Array.isArray(dernier) ? dernier[dernier.length - 1] : dernier;
-    if (msg?.type === "agent_message") {
-      if (msg.status === "succeeded") return String(msg.content ?? "");
-      if (msg.status === "failed" || msg.status === "cancelled") throw new Error(`Agent en échec : ${JSON.stringify(msg.error ?? msg.status)}`);
+  // Conversation existante : on y ajoute le message. Si elle n'est plus accessible, on en recrée une.
+  if (cId) {
+    try {
+      const j = await appelDust("Envoi message", `${dustBase()}/${cId}/messages`, { method: "POST", body: JSON.stringify(message) });
+      userMsgId = j?.message?.sId ?? null;
+    } catch (e) {
+      console.warn("[api/max] conversation non réutilisable", String((e as Error)?.message || e));
+      cId = null;
     }
   }
+
+  // Nouvelle conversation : appel bloquant, la réponse de Max arrive souvent directement.
+  if (!cId) {
+    const ctrl = new AbortController();
+    const minuteur = setTimeout(() => ctrl.abort(), 45_000);
+    try {
+      const j = await appelDust("Création conversation", dustBase(), {
+        method: "POST",
+        body: JSON.stringify({ title: `Start-up Quest · ${auteur.slice(0, 40)}`, blocking: true, message }),
+        signal: ctrl.signal,
+      });
+      cId = j?.conversation?.sId ?? null;
+      userMsgId = j?.message?.sId ?? null;
+      if (!cId) throw new Error("Identifiant de conversation absent de la réponse Dust");
+      const direct = texteAgent(messageAgent(j.conversation, userMsgId));
+      if (direct !== null) return { cId, brut: direct };
+    } catch (e) {
+      // Délai dépassé côté appel bloquant : sans identifiant, impossible de récupérer la réponse.
+      if ((e as Error)?.name === "AbortError") throw new ErreurJeu("MAX_TROP_LENT", 504);
+      throw e;
+    } finally {
+      clearTimeout(minuteur);
+    }
+  }
+  return { cId: cId as string, brut: await attendreMax(cId as string, userMsgId) };
+}
+
+/* Attend la fin de la réponse de Max au message userMsgId (lecture toutes les secondes). */
+async function attendreMax(cId: string, userMsgId: string | null): Promise<string> {
+  const fin = Date.now() + DELAI_MS;
+  while (Date.now() < fin) {
+    const j = await appelDust("Lecture conversation", `${dustBase()}/${cId}`);
+    const t = texteAgent(messageAgent(j?.conversation, userMsgId));
+    if (t !== null) return t;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
   throw new ErreurJeu("MAX_TROP_LENT", 504);
+}
+
+/* Diagnostic complet : GET /api/max?test=1 envoie un vrai message de test à Max. */
+async function testDust() {
+  const debut = Date.now();
+  try {
+    const { cId, brut } = await envoyerDust("output_format=app\nMESSAGE_JOUEUR: Test technique de connexion. Réponds simplement « Max est connecté ».", null, "Diagnostic");
+    return { test: "ok", conversation: cId, duree_ms: Date.now() - debut, extrait: brut.slice(0, 200) };
+  } catch (e: any) {
+    if (e instanceof ErreurDust) return { test: "echec", etape: e.etape, statut_http: e.statut, detail: e.corps.slice(0, 500), duree_ms: Date.now() - debut };
+    return { test: "echec", detail: String(e?.code || e?.message || e).slice(0, 500), duree_ms: Date.now() - debut };
+  }
 }
 
 /* Sépare le texte affiché (MAX_MESSAGE) de l'état (MAX_STATE), en tolérant les variantes. */
@@ -161,6 +222,7 @@ export default async function handler(req: any, res: any) {
   const sbOk = Boolean(SB_URL() && SB_KEY());
   const complet = Boolean(SB_URL() && SB_SECRET());
   if (req.method === "GET") {
+    if (req.query?.test && dustOk) return res.status(200).json(await testDust());
     return res.status(200).json({
       route: "ok", dust_configure: dustOk, supabase_configure: complet, supabase_lecture: sbOk,
       mode: dustOk && complet ? "complet : Max discute et note" : dustOk && sbOk ? "partiel : Max discute, notation automatique de secours" : "secours : Max non branché",
